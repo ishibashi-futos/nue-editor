@@ -1,0 +1,12 @@
+[package]
+name = "nue-app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.101"
+nue-config = { version = "0.1.0", path = "../nue-config" }
+nue-core = { version = "0.1.0", path = "../nue-core" }
+nue-mcp = { version = "0.1.0", path = "../nue-mcp" }
+nue-ui = { version = "0.1.0", path = "../nue-ui" }
+tokio = { version = "1.49.0", features = ["full"] }

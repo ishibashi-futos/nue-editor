@@ -1,0 +1,9 @@
+[package]
+name = "nue-mcp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+nue-config = { version = "0.1.0", path = "../nue-config" }
+serde_json = "1.0.149"
+tokio = { version = "1.49.0", features = ["full"] }

@@ -1,0 +1,10 @@
+[package]
+name = "nue-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.101"
+nue-config = { version = "0.1.0", path = "../nue-config" }
+nue-mcp = { version = "0.1.0", path = "../nue-mcp" }
+ropey = "1.6.1"

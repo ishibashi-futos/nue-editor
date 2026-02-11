@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "nue-app",
+    "nue-core",
+    "nue-ui",
+    "nue-mcp",
+    "nue-config",
+]
+resolver = "2"
