@@ -25,6 +25,6 @@
 | Terminal Emulator | 機能 | エージェントの `run_command` 実行や対話型シェルを表示する端末機能。 | 初期リリースでは PTY、500 行以上のスクロールバック、文字幅/Unicode 整合を保証する。 |
 | MCP Tool | インターフェース | Agent が Router 経由で利用する操作 API 単位。 | 具体ツール集合は仕様側で規定。 |
 | Execution Context | 実行文脈 | `MCP Router` が認可判定に用いる実行条件。 | 例: `Workspace Session`、ブランチ。 |
-| Audit Event | データ | MCP 操作や承認操作など、追跡可能な記録単位。 | 初期リリースはメモリ保持、`v1.0` 以降でユーザーグローバル保存。ファイル保存時は引数全体をハッシュ化し、保持期間デフォルトは 30 日。 |
+| Audit Event | データ | MCP 操作・Shadow Buffer承認・認可拒否などを `event_id`/タイムスタンプ付きで記録し、`Workspace Session`/`Execution Context`/`Agent Status`/引数ハッシュを含む。初期はメモリ保持、`v1.0` 以降で JSONL へ追記する。 | ファイル保存は`audit.storage.path`に追記、`audit.retention_days` (デフォルト 30 日) で古い記録を破棄、`audit.anonymization.level` で引数/機微情報を制御、`audit.queue.max` で再送キュー上限と破棄ルールを調整。 |
 | Authorization Policy | ルール | `MCP Router` がドメイン・ツール・許可引数・実行コンテキスト・承認状態の組み合わせを宣言的に表現し、呼び出しごとの `deny`/`allow` を決定するルールセット。 | マッチするポリシーが存在しない呼び出しは暗黙の拒否となる。 |
 | Policy Evaluation Order | ルール | `MCP Router` が `Authorization Policy` を評価する決定順序。 | ドメイン/ツール一致 -> 実行コンテキスト一致 -> `deny` 評価 -> `allow` 評価 -> 暗黙拒否。 |

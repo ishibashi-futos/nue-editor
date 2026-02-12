@@ -115,6 +115,31 @@ Nueは、Slackのようなマルチワークスペース管理を最上位に据
 
 これらの要件が満たされない場合、`Audit Event` を通じてユーザーへエラー状態を通知し、`MCP Router` はエージェントが再度 `run_command` を要求する前に運用上の確認を促す。
 
+### 4.4 Audit Event ライフサイクル
+
+`MCP Router` はすべての `MCP Tool` 呼び出し、`Shadow Buffer` 承認操作、`Authorization Policy` による拒否などを `Audit Event` として記録し、`App Host` に送信する。`Audit Event` は以下の要件を満たす。
+
+1. **生成**
+   - `MCP Router` は各イベントにタイムスタンプ、`Workspace Session`、対象ツール、`Approval Unit`、`Execution Context`、`Agent Status`、判定結果 (`allow`/`deny`) を含め、`deny` の場合は該当ポリシー ID と不一致理由を付与することを **MUST** とする。
+   - `Shadow Buffer` の `Accept` 操作は差分の範囲を含む `Audit Event` を生成し、UI からの通知後に `Editor Core` へ書き戻しを行う際に `App Host` へ通知されることを **MUST** とする。
+
+2. **保持と永続化**
+   - 初期リリースでは `App Host` が記録をメモリ上のバッファで保持し、当該 `Workspace Session` 終了後に破棄することを **SHOULD** とする。
+   - `v1.0` 以降、`App Host` はユーザーグローバル領域（デフォルト: `~/.config/nue/audit.jsonl`、`audit.storage.path` で再設定可能）に改行区切り JSON (`*.jsonl`) 形式で `Audit Event` を追記し、指定された保持期間 (`audit.retention_days`、デフォルト 30 日) を超えた記録はログロールや削除で期限を守ることを **MUST** とする。
+   - ファイルへの追記時は排他制御を行い、追記完了後にメモリバッファから該当イベントを削除することを **SHOULD** とする。
+
+3. **匿名化と機微情報**
+   - `Audit Event` に含まれるツール引数、パス、環境変数などの機微情報は、`audit.anonymization.level` に応じてマスクまたはハッシュ化されることを **MUST** とし、デフォルトでは引数全体をハッシュ化する。
+
+4. **再送とフェールオーバー**
+   - 永続化失敗時、`App Host` は対象イベントを再送キューへ戻し、指数バックオフで再試行することを **SHOULD** とする。キューが `audit.queue.max` を超過する場合は最古イベントを破棄し、その旨を `Audit Event` と UI に通知することを **MUST** とする。
+   - 各 `Audit Event` は一意の `event_id` を持ち、再送時も同一 ID で管理され、完了後に再送フラグを消去することを **SHOULD** とする。
+
+5. **監査表示**
+   - `App Host` は `Legacy View`/`Galaxy View` の監査パネルで `Audit Event` を `Workspace Session` や `Agent Status`、`Approval Unit` でフィルタ可能とすることを **SHOULD** とする。
+
+以上で、監査記録の生成・保持・匿名化・再送の責務が明示される。
+
 ## 5. Configuration (設定管理) モジュール
 
 設定は階層的にマージされ、常に最新の状態が各コンポーネントへリアクティブに反映される。
