@@ -142,12 +142,34 @@ Nueは、Slackのようなマルチワークスペース管理を最上位に据
 
 ## 5. Configuration (設定管理) モジュール
 
-設定は階層的にマージされ、常に最新の状態が各コンポーネントへリアクティブに反映される。
+設定は階層的にマージされ、常に最新の状態が各コンポーネントへリアクティブに反映される。各構成要素には優先順位と更新可否が定義されており、既存の `ConfigChangeEvent` を介して差分を伝播させる。
 
-1. **環境変数 (Priority: 1)**: `NUE_AGENT__SAFETY__AUTO_ACCEPT=true` など。
-2. **ワークスペース設定 (Priority: 2)**: `.nue/config.yaml`（プロジェクト固有）。
-3. **グローバル設定 (Priority: 3)**: `~/.config/nue/config.yaml`（ユーザーの基本設定）。
-4. **デフォルト (Priority: 4)**: システム内蔵の初期値。
+### 5.1 Source hierarchy and merge priority
+
+1. **環境変数 (Priority: 1)**: `NUE_AGENT__SAFETY__AUTO_ACCEPT=true` など。起動時に読み込まれるため、`App Host` は再評価のたびにこのスコープを最優先でマージする。
+2. **ワークスペース設定 (Priority: 2)**: `.nue/config.yaml`（プロジェクト固有）。ファイル更新を検知したタイミングで再読み込みする。
+3. **グローバル設定 (Priority: 3)**: `~/.config/nue/config.yaml`（ユーザーの基本設定）。同一ユーザーの複数ワークスペースにまたがる変更を検知する。
+4. **デフォルト (Priority: 4)**: システム内蔵の初期値。常に最後のフォールバックとして保持される。
+
+### 5.2 変更検知と再評価
+
+`App Host` はグローバル設定とワークスペース設定のファイル変更をファイルシステムイベント（例: kqueue/inotify/ReadDirectoryChangesW）で監視し、変更完了から 5 秒以内に再評価サイクルを開始する。このサイクルで、`App Host` は対象ファイルを再パースし、既存の設定スキーマに対して構文・バリデーションチェックを行う。パースに失敗した場合は既存の設定を保持し、該当事象を `Audit Event`（`type=config.reload.failure`）として記録し、ユーザーへ修正を要求する通知を出す。
+
+変更が正当であれば、`App Host` は新しい設定と先行設定との差分を計算して単調増加する `config_revision` をインクリメントし、`ConfigChangeEvent` を生成する。`ConfigChangeEvent` は `source`（Global/Workspace）、`revision`、`changed_keys`、`previous_values`、`hot_reloadable` フラグを含み、待機中の `Workspace Session` および `AI Agent` に配信される。`App Host` は `config.reload` という UI コマンドを提供し、ユーザーが手動で再評価を要求した際もこのサイクルを再利用する。
+
+環境変数の変更はプロセスの起動時に固定されるため、`App Host` はランタイム中に間接的な検知手段を持たない。したがって、環境変数ベースの設定を変更する場合、ユーザーは `App Host` を再起動しなければならず、`App Host` は再起動を伴う変更を要求するアラート（再起動後に `config_revision` を再生成）を表示することを **MUST** とする。
+
+### 5.3 伝播と適用制御
+
+`Workspace Session` は自セッションに関係する `ConfigChangeEvent` を購読し、受信から 2 秒以内に適用を試行する。`ConfigChangeEvent` に含まれる各 `changed_key` にはメタデータとして `hot_reloadable`（`true`/`false`）が付与されており、`false` の場合は再起動なしには適用できない旨を示す。`Workspace Session` は `hot_reloadable=true` のキーについてのみ `Editor Core`・`MCP Router`・`Terminal Emulator` 等へ新値を反映し、`hot_reloadable=false` のキーは再起動が完了するまで旧値を保持してユーザーに通知する。通知には変更内容と再起動コマンド（例: `Restart App Host`）を含め、`App Host` が再起動済みであることを確認した後に `config_revision` を新しい値に合わせる。
+
+`Workspace Session` は `ConfigChangeEvent` に `hot_reload_scope` を含め、関連する UI/サービスを限定的に再初期化する。たとえば、`MCP Router` のポリシー定義変更は `hot_reload_scope=router` となり、当該スコープ内のコンポーネントにのみ更新通知を送る。
+
+### 5.4 フェールセーフと監査
+
+`App Host` はすべての再評価サイクルを `Audit Event`（`type=config.reload` 以上）として記録し、`Workspace Session` に配信した `config_revision` を含めて `Legacy View`/`Galaxy View` の監査パネルから追跡できるようにする。設定の差分を適用できなかった場合（例: 検証エラー、`Workspace Session` が遅延したコンポーネント）、`App Host` は 既存の設定を再登録し、該当した `ConfigChangeEvent` について `Audit Event` を `config.reload.failure` として二重記録し、ユーザーへ修正指示を送る.
+
+再評価時に `audit.queue.max` を超過するような連続的な失敗が発生した場合、`App Host` は最も古い `ConfigChangeEvent` を削除し、削除されたイベントの `event_id` を含む通知と `Audit Event` を生成することを **MUST** とする。削除前には少なくとも 30 秒の猶予を設け、その間にユーザーが手動で再適用できるようにする。
 
 ---
 
