@@ -76,21 +76,39 @@ Nueは、Slackのようなマルチワークスペース管理を最上位に据
 
 ### 4.1 MCP Router Authorization Model
 
-`MCP Router` はエージェントから呼び出される全ての `MCP Tool` を受け取り、認可を通じて Core への影響を制御するセキュリティ境界である。`Authorization Policy` は `Domain`/`Tool`/`Permit Arguments`/`Execution Context`/`Approval State` の組み合わせで定義され、エントリが存在しない呼び出しは暗黙の拒否とすることでホワイトリスト運用を保証する。
+`MCP Router` はエージェントから呼び出される全ての `MCP Tool` を受け取り、認可を通じて Core への影響を制御するセキュリティ境界である。`Authorization Policy` は `Domain`/`Tool`/`Permit Arguments`/`Execution Context`/`Approval State` の組み合わせで 定義され、エントリが存在しない呼び出しは暗黙の拒否とすることでホワイトリスト運用を保証する。
 
-1. **評価順序の要件**  
-   `MCP Router` は次の順序でポリシーを評価し、`deny` が一致した時点で判定を返す。  
-   Domain/Tool → Execution Context → `deny` ポリシー → `allow` ポリシー → 暗黙の拒否。  
-   `deny` と `allow` の関係が衝突する場合、`deny` を優先し、拒否理由を含む `Audit Event` を生成すること。
+#### 4.1.1 Authorization Policy Entry Structure
+各 `Authorization Policy` は個々のエントリの集合とし、各エントリは次のフィールドを **MUST** もしくは **SHOULD** に基づいて定義する必要がある。
 
-2. **実行時コンテキスト**  
-   `Execution Context` には `Workspace Session` 識別子、作業中の git ブランチ、エージェントのリソース型（例: “Code Generation” 対 “Build”）を含め、ポリシーはこれらの条件を必要に応じてマッチ項目とする。
+- `policy_id`（**SHOULD**）: 不服申立てや `Audit Event` に記録するための識別子。
+- `domain`/`tool`（**MUST**）: `MCP Tool` のドメインと名前。ドメインは明示的な文字列で、`tool` も同様に正確一致させる。
+- `argument_constraints`（**MUST**、空配列は許可しない）: 呼び出しに含まれる引数の名前と許容値を含むリスト。各制約は名前と `match_type`（`literal`/`regex`）および暗黙的な `hash` 値を持ち、`MCP Router` は受信時に引数を `audit.anonymization.level` に従ってハッシュ化してから照合する。未定義の引数が存在する場合は、`allow_extra_arguments=false` を明示的に宣言するか、追加の制約を記述する必要がある。
+- `execution_context`（**MUST**）: `Workspace Session`、ブランチ、`Agent Status`、リソース型などの属性。各属性は `match_type` を含め、指定された条件と一致しない場合は単一のエントリとして扱われない。
+- `approval_state`（**MUST**）: `auto_allow`/`requires_user_consent`/`blocked` のいずれかを指定し、`4.1.3` で定義するユーザー承認フローに従う。
+- `effect`（**MUST**）: `allow` または `deny` を明示し、`deny` の記述はそのまま拒否を意味する。
+- `priority`（**SHOULD**、整数）: 同じ `domain`/`tool` 内で複数の `allow` エントリが存在する場合、`Router` は `priority` の大きいエントリを優先する。未指定の場合はデフォルト値 `0` で扱う。
+- `message`（**SHOULD**）: ユーザー通知やエージェントへのレスポンスで使用する短文。
 
-3. **ツール引数の扱い**  
-   ツールに渡される引数は、ポリシーに応じてマスク/ハッシュ化された形で評価に使う。暗黙的なすべての引数許容は認可リスクを高めるため、ポリシーで定義された引数セットへの一致が必須となる。
+`argument_constraints` は `Permit Arguments` の実体であり、**MUST** かつ明示的な `hash` マッチを持たない限り、引数の型や値を許可しない。エントリは任意で `allow_extra_arguments=true` を付与して引数の拡張を許可できるが、このフラグを使う場合も少なくとも `argument_constraints` に1つ以上の名前を含め、最低限の引数情報を保つことを **MUST** とする。
 
-4. **監査連携**  
-   `MCP Router` はすべてのツール呼び出しに `Audit Event` を記録し、拒否時には原因・満たせなかった `Authorization Policy` を `Audit Event` に含める。`Audit Event` は必要なら匿名化パラメータ（引数全体のハッシュなど）を適用する。
+#### 4.1.2 Policy Evaluation and Conflict Resolution
+`MCP Router` は呼び出しごとに、`domain`/`tool` → `execution_context` → `argument_constraints` の順でポリシーを絞り込む。最初の `deny` マッチが発生した時点で評価を打ち切り、`deny` を返す。`deny` と `allow` が競合する場合は常に `deny` を優先し、`Audit Event` に拒否理由と該当 `policy_id` を記録することを **MUST** とする。
+
+`deny` が存在しない場合、`allow` の候補が残るので、`argument_constraints` の数（特定性）と `priority` を用いて最も詳細なエントリを選択する。`MCP Router` は、同一 `priority` かつ同じ制約数の `allow` が複数ある場合、最新の `policy_revision` を持つエントリを優先し、同一であれば設定ファイルで定義順に従う。すべてのステップで評価対象の `policy_id` と `approval_state` を `Audit Event` に含め、引数については個人情報を漏洩させない形式（デフォルトはハッシュ）で記録する。
+
+候補が存在しない場合は暗黙的な拒否とし、`Audit Event` に `policy_id=null` を記録して運用側がログから不足を分析できるようにする。拒否レスポンスには `message` が含まれることを **SHOULD** とし、エージェントに明確な次の手順を促す。承認済みの `MCP Tool` 呼び出しは、`Authorization Policy` の `execution_context` が変化した場合（例: `config_revision` の更新、`Workspace Session` の切り替え）に再評価されるものとし、キャッシュされた承認ステートは無効化される。
+
+#### 4.1.3 Approval State and User Flow
+`approval_state` は、ユーザーまたは自動化の承認要件を示す属性であり、次の値を **MUST** または **SHOULD** で選択する。
+
+- `auto_allow`: `MCP Router` は `allow` のみを返し、`Audit Event` に `approval_state=auto_allow` を記録する。明示的な `Audit Event` により、`App Host` が自動化の挙動を追跡できる。
+- `requires_user_consent`: 呼び出しは `Shadow Buffer` を通じた差分（`Approval Unit`）と連携し、ユーザーの操作（`Workspace Session` 単位または `ファイル単位` の `Accept`）を要求する。呼び出しが最初に到達した際には `deny` 応答とともに `Audit Event` を `approval_state=pending` で生成し、UI に `Approval Request` を送る。ユーザーが `Accept` した後、`MCP Router` は再評価を行い、条件が変わっていなければ `approval_state=approved` の `allow` を返す。明示的な拒否がある場合は `approval_state=blocked` で `deny` し、`Audit Event` に記録する。
+- `blocked`: 呼び出しは常に `deny` される。`Audit Event` は `approval_state=blocked` を含め、ユーザーおよびエージェントに理由を通知する。
+
+手動承認の際、`App Host`/`UI View` は `policy_id`・`tool`・引数のハッシュ・`Execution Context`（`Workspace Session`/ブランチ）を含む `Approval Request` を表示し、ユーザーは `Shadow Buffer` の一覧に沿って `Approve` を選択する。承認が完了するとき、`MCP Router` は一時的な承認キャッシュを `policy_id` × `Approval Unit` × `execution_context` の組み合わせで保持し、`config_revision` か `Workspace Session` が変化した場合はこのキャッシュを無効化することを **MUST** とする。
+
+ユーザーが `Accept` するまで、要求された `MCP Tool` 呼び出しはエージェントに対して明示的な `deny` として返され、エージェントは `Audit Event` で得た `message` を参照して再試行を抑制する。`requires_user_consent` のポリシーが `Shadow Buffer` の差分と紐づかない呼び出し（例: `run_command`）では、UI に `Approval Request` を表示し、`MCP Router` は `Audit Event` に `approval_unit=manual` で記録する。
 
 ### 4.2 Shadow Buffer と承認フロー
 

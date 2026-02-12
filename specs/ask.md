@@ -5,11 +5,10 @@
 - [x] Q10. 設定（環境変数/ワークスペース/グローバル）に変更があった場合、`App Host` や `Workspace Session` は即時再評価して適用すべきですか、それとも再起動/再読み込みを要求すべきですか？
   - Answer: `App Host` はファイル変更を 5 秒以内に検知して再評価し、`Workspace Session` には `ConfigChangeEvent` を配信する。`hot_reloadable=false` のキーは再起動が完了するまで旧値を保持し、再起動を要求する通知を出す。環境変数変更は再起動必須である。 `spec-nue.md` Sec.5 を参照。
 
+- [x] Q1. `MCP Router` はどの粒度で認可を強制しますか？
+  - Answer: `Authorization Policy` は `policy_id`/`domain`+`tool`/`argument_constraints`/`execution_context`/`approval_state`/`effect`/`priority` を持つエントリから評価され、`deny` があれば即時拒否、なければ最も特化した `allow` を選択する。`requires_user_consent`/`auto_allow`/`blocked` の承認状態ごとの UI 連携と `Audit Event` 記録を `spec-nue.md` Sec.4.1.1–4.1.3 に RFC 2119 形式で記載しており、未定義の呼び出しは暗黙的に拒否して理由を出す。
+
 ## Open
-
-- [ ] Q1. `MCP Router` はどの粒度で認可を強制しますか？
-
-Answer:  ツール + 引数 + 実行コンテキスト（`Workspace Session`/ブランチ）で評価する。
 
 - [ ] Q3. `Accept` 以外の操作を初期リリースに含めますか？
 

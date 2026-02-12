@@ -14,11 +14,11 @@
   - Before: 設定のマージ優先度は記述されたが、環境変数・ワークスペース・グローバル設定の変更をどのタイミングで各コンポーネントが再評価するか未定義。
   - After: `ConfigChangeEvent` による再評価サイクル、ホットリロード可能/不可キーの扱い、再起動要求時の監査と `audit.queue.max` 扱いを `spec-nue.md` Sec.5 で定義した。
 
-## ToDo
+- [x] P1: `MCP Router` の認可モデルを定義する
+  - Before: `MCP Tool` 実行可否と承認粒度が未定義で、セキュリティ境界が曖昧であった。
+  - After: `spec-nue.md` Sec.4.1 に Authorization Policy エントリ構造（`policy_id`/`argument_constraints`/`execution_context`/`approval_state`/`effect`/`priority`）、引数ハッシュマッチ、`deny` 優先の評価順、`requires_user_consent`/`auto_allow`/`blocked` の承認フロー、`Audit Event` 連携を RFC 2119 スタイルで記載した。
 
-- [ ] P1: `MCP Router` の認可モデルを定義する
-  - Before: `MCP Tool` 実行可否と承認粒度が未定義で、セキュリティ境界が曖昧。
-  - After: ツール単位/引数単位/ユーザー承認フローを RFC 2119 で規定し、拒否時の挙動を明文化。
+## ToDo
 
 - [ ] P1: `Shadow Buffer` の承認モデルを定義する
   - Before: `Accept` 以外（Reject/Revert/Partial Accept）が未定義で、運用手順が確立できない。
