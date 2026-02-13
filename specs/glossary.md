@@ -36,6 +36,8 @@
 | Authorization Policy | ルール | `MCP Router` がドメイン・ツール・許可引数・実行コンテキスト・承認状態・ポリシーバージョンの組み合わせを宣言的に表現し、呼び出しごとの `deny`/`allow` を決定するルールセット。 | 各エントリは `policy_id`/`argument_constraints`/`execution_context`/`approval_state`/`effect`/`priority` を持ち、未定義呼び出しは暗黙の拒否。 |
 | Policy Evaluation Order | ルール | `MCP Router` が `Authorization Policy` を評価する決定順序。 | ドメイン/ツール一致 -> 実行コンテキスト一致 -> `deny` 評価 -> `allow` 評価 -> 暗黙拒否。 |
 | Policy Revision | 管理 | Authorization Policy が再定義されるたびにインクリメントされる数値。 | `policy_id` とセットで `Audit Event` に記録され、最新の `policy_revision` を持つエントリが評価優先される。 |
+| ToolExecutionState | データ構造 | `MCP Router` が `run_command` ごとに `agent_id`/`workspace_session_id` と共に保持する状態トラッキング。 | `state`（`Idle`/`Queued`/`Running`/`Completed`/`Failed`）、`command_line`、`start_time`、`completion_time` を含み、`ToolRequestQueue` と連携して重複実行を防ぐ。 |
+| ToolRequestQueue | データ構造 | `MCP Router` が同一 `Workspace Session` 内の `run_command` 要求を FIFO で待機させるキュー。 | `tool.execution.queue_max_pending` を上限とし、`queue_overflow` 時に `Audit Event` を生成、`result=queue_start` 等で状態を通知する。 |
 | Config Change Event | イベント | 設定変更の差分を表す構造体で、`source`/`revision`/`changed_keys`/`previous_values`/`hot_reloadable` を含み `App Host` → `Workspace Session` 間で伝播される。 | `ConfigChangeEvent` を起点に再評価サイクルが展開する。 |
 | Config Revision | シーケンス | 設定の再評価ごとに単調増加する番号。 | `ConfigChangeEvent` には `config_revision` を含め再起動や再適用の状態を判別可能にする。 |
 | Hot Reload Scope | 範囲 | 設定変更が `Workspace Session` 内のどのコンポーネント（例: `router`）に影響するかを示す列挙値。 | `hot_reloadable=false` の変更は再起動が完了しない限り適用されない。 |

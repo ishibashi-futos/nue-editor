@@ -22,6 +22,10 @@
   - Before: `Command Hub`/Intent候補のモード、ローカルAI、実行計画との連携が未定義で、MCP Router および Shadow Buffer との整合性が曖昧であった。
   - After: `spec-nue.md` Sec.6.1 でコマンドパレットのモード・候補更新要件、`nue-semantic`（Intent Resolver/Local RAG/Policy-Aware Scoring）の構成と `Audit Event`/Shadow Buffer との連携を RFC 2119 形式で明記した。
 
+- [x] P1: MCPプロバイダの「ドメイン境界」とライフサイクル
+  - Before: エージェントの `run_command` 等が workspace の境界を越えて実行される可能性と、複数 `run_command` の同時起動による衝突時のキューイングが未定義で、CI/セキュリティ境界が不明瞭であった。
+  - After: `spec-nue.md` Sec.4.5 で `workspace_root` に基づく `execution_context` の強制、FSツールの Canonical 化、`ToolExecutionState`/`ToolRequestQueue` による `run_command` のライフサイクルとキュー上限、逸脱時の `Audit Event` 記録を RFC 2119 で明記した。
+
 ## ToDo
 
 - [ ] P1: デザイン・カラーの具体化を進める
@@ -53,10 +57,9 @@
   - UIの初期化プロセス内で埋め込んだバイナリを `FontContext` に登録
 
 
-- [ ] P1: MCPプロバイダの「ドメイン境界」とライフサイクル
-  - エージェントが run_command 等を呼び出した際、それがどの「ワークスペースのコンテキスト」で実行されるかの紐付けが甘い
-  - Context Isolation: MCP Router は、呼び出し元のエージェントが属する Workspace Session のルートディレクトリを強制的に CWD (カレントワーキングディレクトリ) として設定し、プロジェクト外へのアクセスを制限する仕様とする
-  - Tool State: run_command で起動したプロセス（ビルド等）がまだ動いている間に、エージェントが別の run_command を送った場合、処理をキューイングして待機させること（複数エージェントによる同時操作 -> クラッシュを防ぐ）
+- [ ] P1: Command Hubの候補更新遅延と外部エージェント提案の挙動
+  - 16ms を超える候補更新遅延時の UI 表示と `Action/Navigation Mode` への案内、`nue-semantic` の遅延中の再スコアリング状態を明記する。
+  - `nue-semantic` が内部リソースで解決できない場合の外部エージェント提案の制御ポリシーと、提案先プロファイルの限定：`requires_user_consent` の `Audit Event` で構成を明記。この提案を最後の手段とし、候補がない場合は「現在のコンテキストで解決不能」を UI に返す。
 
 - [ ] P1: エージェントの「認可エラー」時のリカバリフロー
   - 認可拒否（deny）された際、エージェントがループ（再試行の繰り返し）に陥るのを防ぐ仕様が必要です。

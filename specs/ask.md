@@ -50,7 +50,12 @@
 - [x] Q12. `Audit Event` 再送キューの上限 `audit.queue.max` は何件（単位）とし、上限到達または削除した場合のユーザーへの通知/運用挙動をどう定めますか？
   - Answer: `Audit Event` については、必須ではないので後回しにする。
 
+- [x] Q13. `Command Hub` の候補更新に 16ms 以内という目標があるが、`nue-semantic` 感染再スコアリングで遅延が発生する場合の UX をどう扱うか？
+  - Answer: `Command Hub` は 16ms を超える遅延時に直前候補を維持して Backoff 状態を表示し、`Action Mode`/`Navigation Mode` への移行案を提示しつつ `nue-semantic` の再スコアリングを続け、再評価完了後に最新候補へ置換する。 (`spec-nue.md` Sec.6.1.1)
+
+- [x] Q14. `nue-semantic` が内部リソースで解決できない場合の外部エージェント提案の制御ポリシーは？
+  - Answer: 外部エージェント提案は最終手段とし、`requires_user_consent` + `Audit Event` でプロファイル（例: `external_agent_profile=cloud_lambda_v2`）を限定する。提案先がない場合は「解決不能」メッセージを返す。 (`spec-nue.md` Sec.6.1.2)
+
 ## Open
 
-- [ ] Q13. `Command Hub` の候補更新に 16ms 以内という目標があるが、現実的に `nue-semantic` が RAG 再構築や Policy-Aware Scoring を実行する際に 16ms を超える場合の UI/挙動（例: 進行表示、旧候補維持、バックオフ）が未定義です。遅延が発生したときの UX をどこまで保証すべきか？ (`spec-nue.md` Sec.6.1.1)
-- [ ] Q14. `nue-semantic` が「現在のコンテキストだけでは解決できない」と判断した場合にのみ外部エージェント問い合わせを提案するとあるが、その判断基準（例: 必要な `MCP Tool` が未許可、Local RAG に該当候補がない等）や許容する外部エージェントのプロファイルが未定義です。どこまでの条件で提案し、提案先をどう限定するべきか？ (`spec-nue.md` Sec.6.1.2)
+- [ ] Q15. 外部エージェント（例: `cloud_lambda_v2`）への問い合わせを `requires_user_consent` かつ `Audit Event` でのみ提案する場合、どのようなプロファイル名/リソースを許可し、誰がその一覧を管理するのか未定義です。提案可能な外部エージェントの最小限の分類や管理者承認フローを決める必要があります。 (`spec-nue.md` Sec.6.1.2)

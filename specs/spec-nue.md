@@ -162,6 +162,26 @@ Nueは、Slackのようなマルチワークスペース管理を最上位に据
 
 以上で、監査記録の生成・保持・匿名化・再送の責務が明示される。
 
+### 4.5 MCP プロバイダのドメイン境界とツールライフサイクル
+
+`MCP Router` は Workspace Session ごとにドメイン境界とツールの実行状態を管理し、プロジェクト外への逸脱および並列実行の競合を防ぐ責務を持つ。
+
+#### 4.5.1 Workspace Context Enforcement
+
+- `Workspace Session` は起動時に Canonical な `workspace_root` を決定し、`MCP Router` はすべてのツール呼び出しに対し `execution_context.workspace_root` を付与することを **MUST** とする。
+- `run_command` を含むあらゆるファイル操作・実行操作は、CWD を `workspace_root` に固定し、`..` を含む相対パスや、シンボリックリンクを介して別のリポジトリやルートディレクトリへ遡るパス、あるいは `PATH`/`LD_LIBRARY_PATH` といった環境で明示的に外部実行環境を指定する変更を **MUST** 禁止する。逸脱が検出された場合、`MCP Router` は即時 `deny` として `Audit Event` を生成し、エージェントには `workspace_scope_violation` を理由として通知することを **MUST** とする。
+- `FS` ドメイン（`apply_patch`/`read_file`など）のツールは `workspace_root` 内のノードのみを受け入れ、`canonical_path.starts_with(workspace_root)` が成立しない場合は `deny` とすることを **MUST** とする。
+- `Workspace Config` で許可された `workspace_env` 以外の環境変数追加・上書きは認めず、`run_command` へ渡す `env` は `App Host` が定義した最小限の `workspace_env` + システムデフォルトに限定することを **SHOULD** とする。`Audit Event` には `execution_context.workspace_env` を含め、どの構成から環境が注入されたかを記録することを **SHOULD** とする。
+
+#### 4.5.2 Tool Execution Queue and Lifecycle
+
+- `MCP Router` は `ToolExecutionState` と呼ばれる構造体で各 `Workspace Session` の `tool_name`/`agent_id` ごとの状態を追跡し、同一セッションでの `run_command` の同時実行を防ぐことを **MUST** とする。`ToolExecutionState` には `state`（`Idle`/`Queued`/`Running`/`Completed`/`Failed`）、`agent_id`、`command_line`、`start_time`、`completion_time` を含める。
+- `run_command` が到達したとき、該当セッションに `Running` 状態が存在しない場合は即座に `state=Running` へ遷移する。既に `Running` が存在する場合は `ToolRequestQueue` へ FIFO で追加し、`state=Queued` の `Audit Event` を `result=queued` / `queue_reason=tool_busy` で生成することを **MUST** とする。
+- `ToolRequestQueue` は `tool.execution.queue_max_pending`（未設定時は `4`）を上限とし、上限に達した状態で追加要求を受けた場合は `deny` し `Audit Event` に `result=queue_overflow` を記録、エージェントには「先行する `run_command` の完了を待つか中断する」旨の `message` を返すことを **MUST** とする。
+- `Running` が終了すると、`ToolRequestQueue` から先頭のエントリを取り出して `state=Running` へ遷移させ、`Audit Event` に `result=queue_start` を生成する。ユーザー UI には `Terminal` 上で `Queued` バッジや `Command Hub` の `Action Mode` で待機中候補を表示するように **SHOULD** 定義する。
+- セッション終了・シャットダウン・ツール失敗時には、残存する `Queued` エントリを `result=canceled` として `Audit Event` に記録し、該当するエージェントへ `deny` を返す。`ToolExecutionState` はセッション破棄時に初期化されることを **MUST** とする。
+- 上記の `ToolExecutionState` と `ToolRequestQueue` の変更はすべて `Audit Event`（`tool_state`/`queue_length`/`workspace_session_id`/`agent_id`）として記録し、`Shadow Buffer` や `Terminal` との整合性を保つようにすることを **SHOULD** とする。
+
 ## 5. Configuration (設定管理) モジュール
 
 設定は階層的にマージされ、常に最新の状態が各コンポーネントへリアクティブに反映される。各構成要素には優先順位と更新可否が定義されており、既存の `ConfigChangeEvent` を介して差分を伝播させる。
@@ -216,6 +236,7 @@ Nueは、Slackのようなマルチワークスペース管理を最上位に据
   - `:` プレフィックス（Navigation Mode）: ファイル名・シンボル名によるナビゲーション。例: `:src/lib.rs`。
   - プレフィックスなし（Intent / Smart Search）: 自然言語（英語）で意図を入力し、`nue-semantic` による候補推論を得る。例: `test database connection` や `document API changes`。
 - モードはリアルタイムに切り替わり、入力中のテキストに応じて候補リストを 16ms 以内に更新することを **SHOULD** とする。
+- 16ms 以上の遅延が発生した場合、`Command Hub` は直前に表示していた候補を維持しつつ `Backoff` 状態を表示することを **MUST** とし、この状態では `nue-semantic` による再スコアリングが継続される旨とともに `Action Mode`/`Navigation Mode` への移行案を明示し、再評価完了後に最新候補が置換されるようにする。
 - 各候補には発行元（AIエージェント/ユーザー）、必要な `MCP Tool`、`Approval State`（`auto_allow`/`requires_user_consent`/`blocked`）を付与し、選択時に即座に `Audit Event` を作成することを **SHOULD** とする。
 - 選択された候補は `MCP Router` へ `Intent Request` を送信し、`approval_state` に応じて自動的に処理されるので、`Command Hub` は `Audit Event` 経路を共有して `Shadow Buffer` との連携を疎通させることを **SHOULD** とする。
 
@@ -228,6 +249,7 @@ Nueは、Slackのようなマルチワークスペース管理を最上位に据
   - **Policy-Aware Scoring**: `Authorization Policy` に定義された `argument_constraints`/`execution_context` を照合し、実行可能な候補のみを上位にソートする。
 - `nue-semantic` は、候補の生成・表示・選択を 100ms 以内で完了させるように設計され、遅延が発生する場合は進行中の推論を UI 上でステータス表示することを **SHOULD** とする。
 - `nue-semantic` が現在のコンテキストだけでは実行不可能（例: セキュリティ上の制限や外部リソースへの依存）と判断した場合、`Command Hub` はユーザーへ外部エージェント（例: 高性能クラウドAI）への問い合わせを提案し、その提案は `approval_state=requires_user_consent` として `Audit Event` に記録されることを **SHOULD** とする。
+- 上記の提案は `nue-semantic` が内部リソースで解決できない場合の最後の手段とし、`Command Hub` は外部エージェントの選定ポリシーとして `requires_user_consent` かつ `Audit Event` で明示されるプロファイル（例: `external_agent_profile=cloud_lambda_v2`）に限定することを **MUST** とする。提案先候補が存在しない場合は `Command Hub` が「現在のコンテキストでは解決不能」として終了レスポンスを返すことを **SHOULD** とする。
 - `Intent/Smart Search` は候補の選択時に `MCP Router` への `run_command` や `apply_patch` の呼び出しを発生させる実行プランを返し、その過程で `Shadow Buffer` の差分として登録されるエントリと整合することを **MUST** とする。
 - `Local RAG` に使うインデックスはファイルシステムの変更（追加/削除/リネーム）を検知した後 5 秒以内に部分更新し、入力ミスや類似語を許容するキーワードマッチを備えることを **SHOULD** とする。
 
