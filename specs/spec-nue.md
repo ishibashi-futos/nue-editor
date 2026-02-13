@@ -432,6 +432,57 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 上記により `Global Search` は文字列一致をベースとするクラシックな検索と、`Semantic Search` による意味的ハイライトを同一のループで扱い、`Command Hub` が意図 → 検索 → 承認の流れを一貫して担保することを **MUST** とする。
 
+## 7. ワークスペース継続性とリソース管理
+
+`App Host` は複数のワークスペースを高速に切り替えながら、必要なときにリソースを解放することで全体メモリの圧縮とユーザー操作の継続性を両立させる責務を持つ。これを実現するために、各 `Workspace Session` について**セッションスナップショット**（`SessionSnapshot`）を整備し、スリープ/再開のトリガーやレイアウト復元を統制することを **MUST** とする。
+
+### 7.1 セッションスナップショットとレイアウト復元
+
+`SessionSnapshot` は `Workspace Session` の現在状態を表す構造体であり、以下の項目を最低限含めることを **MUST** とする。
+
+1. `workspace_session_id`/`snapshot_revision`/`captured_at` といった識別情報。
+2. `open_tabs` の一覧（`tab_id`/ファイルパス/バッファ ID/カーソル位置/ビューポートオフセット/スプリット位置）。
+3. `Shadow Buffer` にある未承認差分とそれに紐づく `Audit Event` の `related_event_id`・`approval_unit`・`focus_id`。
+4. `ToolExecutionState`/`ToolRequestQueue` のキュー状態と `Approval State`。
+5. `Terminal Emulator` のセッション（`working_dir`/`scrollback` の直近範囲）と、`Command Hub` の未処理候補および `sets`（`Action Mode`/`Navigation Mode`）のフォーカス。
+
+`App Host` は `SessionSnapshot` を次のタイミングで更新することを **SHOULD** とする。
+
+- 開いているタブやスプリット構成が変化したとき。
+- ユーザーがカーソル位置・アクティブタブを切り替えたとき。
+- `Workspace Session` が `Sleep Mode` に移行する直前。
+
+スナップショットは `~/.config/nue/sleep/session_snapshots/<workspace_id>/<snapshot_id>.json` など恒久的なストレージへ原子書き込みされ、`sleep.snapshot.max_per_workspace`（デフォルト `3`）を超えると最も古いスナップショットを削除して `Audit Event`（`type=sleep.snapshot.prune`）を発行することを **MUST** とする。 `SessionSnapshot` は `App Host` が保持する `Workspace Rail` の表示や将来的なタブ/レイアウト復元機構のベースとなり、Tab/レイアウト管理の最終仕様は本スナップショットの拡張を通じて実現することを **SHOULD** とする。
+
+### 7.2 Sleep モードと復元フロー
+
+#### トリガー
+
+`Workspace Session` は次のいずれかの条件を満たすと `Sleep Mode` に移行することを **MUST** とする。
+
+- `workspace.sleep.timeout_seconds`（デフォルト 600 秒）以上、各種 UI/入力・エージェント操作がない状態が続いた。
+- `Workspace Rail` 上の対象アイコンを右クリックした `Sleep Workspace` コマンド、もしくは `Command Hub` からの `Sleep` 操作が明示的に発行された。
+
+#### Sleep への移行
+
+1. `App Host` は移行前に `SessionSnapshot` を更新し、`snapshot_id` をロックする。
+2. `SessionSnapshot` をストレージへ書き出し、`Audit Event`（`type=sleep.enter`, `workspace_session_id`, `snapshot_id`, `trigger`）を生成することを **MUST** とする。
+3. `Workspace Session` は `MCP Router`、`Editor Core`、`Terminal Emulator`、`nue-semantic` などの実稼働コンポーネントを停止し、`ToolExecutionState`/`ToolRequestQueue` を `Paused` 状態に移行させる。`MCP Router` は `run_command` を拒否し、差分の生成を停止することを **MUST** とする。
+4. `App Host` は当該 `Workspace Session` を `State=Sleep` としてマークし、`Workspace Rail` 上に Sleep バッジ（`Sleeping`）を表示する。睡眠中の `Command Hub` は `Away` バックドロップを表示し、`Audit Event` への `state=sleeping` 属性を持たせることを **SHOULD** とする。
+5. Sleep 中は当該セッションに対する `ConfigChangeEvent` の配信は保留され（`hot_reload_scope` だけでなく `config_revision` も更新を保留）、復帰時にまとめて適用することを **SHOULD** とする。
+
+#### 復元
+
+1. ユーザーが対象ワークスペースを再アクティブにすると `App Host` は最新の `SessionSnapshot` を読み込み、`Audit Event`（`type=sleep.resume`, `snapshot_id`）を生成することを **MUST** とする。
+2. `Workspace Session` を再生成し、`workspace_session_id` を再利用した上で `MCP Router`・`Editor Core`・`Terminal Emulator`・`nue-semantic` を再起動する。`ToolExecutionState`/`ToolRequestQueue` はスナップショットと整合するようにキュー状態を再構築し、`Approval Request` は `Shadow Buffer` 内の `related_event_id` に戻す。 
+3. 開いていたタブは `SessionSnapshot` に従って順番・スプリット構成・カーソル位置・ビューポートを復元し、`Minimap`/`Structure Path`/`Smart Gutter` にも `focus_id` を通知する。復元完了後、`Command Hub` は自動で `Approval Requests` を再表示することを **SHOULD** とする。
+4. `App Host` は Sleep 復元後、直前の `SessionSnapshot` と異なる `cursor`/`focus` 状態を `focus_discrepancy` として `Audit Event`（`type=sleep.focus-discrepancy`）に記録し、ユーザーへ差分があることを通知することを **SHOULD** とする。
+5. 復元時に未処理差分がある `Shadow Buffer` については `Command Hub` が `Solar Flare` を点滅させて `Approval Request` を強調し、sleep 解除直後でも承認が継続できる状態とする。 
+
+`Sleep Mode` はメモリ・CPU を解放しながらも、`Workspace Session` を再び選択した瞬間に 1 秒以内（`workspace.sleep.resume_budget_ms`）で作業状態を復元するよう設計することを **SHOULD** とする。 `App Host` は最大 `sleep.concurrent.max`（デフォルト 2）の Sleep セッションを同時に保持し、上限を超える場合最も古いセッションを `sleep.terminate_on_overflow=true` で終了して `Audit Event`（`type=sleep.terminate`, `reason=overflow`）を生成することを **SHOULD** とする。
+
+上記を満たすことで、`Sleep Mode` は `Workspace Session` の `Cursor`/`承認状態`/`Audit Event` 関連の整合性を維持しつつ、未使用のワークスペースを積極的に休止させるしくみとして機能する。
+
 ## 8. 未解決の設計課題と ToDo
 
 本仕様では、`specs/backlog.md` に ToDo 形式で追跡している項目を逐次列挙し、Sec.4.2.1 で言及した `Reject`/`Partial Accept`/`Revert` のような拡張を忘れないように管理することを **MUST** とする。

@@ -77,19 +77,16 @@
   - Before: 行番号領域の差分表示や AI 活動インジケーター、`Audit Event` 連携の UI 側要件が未定義で、Command Hub/Minimap との同期方法も未整備。
   - After: `spec-nue.md` Sec.3.7 に Smart Gutter の `AI Pulse Indicator`/`Git Delta` 表示、`Audit Event` の `result`・`resolution_hint` 連携、`Glyph` によるアクセシビリティ表現、Command Hub/Minimap/Structure Path へのフォーカス同期を RFC 2119 で定義した。
 
+- [x] P1: タブ・レイアウト管理
+  - Before: ワークスペースを切り替えた際、それぞれのタブの開き具合やスクロール位置などを完全に復元する機構が存在せず、作業継続性が確保できていなかった。
+  - After: `spec-nue.md` Sec.7.1 に `SessionSnapshot` による開いているタブ/スプリット/ビュー表示/Shadow Buffer 差分/ツールキューの記録・復元を定義し、切り替え後の元の状態への復帰要件を RFC 2119 で定義した。
+
+- [x] P1: Sleep 機能
+  - Before: 非アクティブなワークスペースを休止させる仕組みがなく、メモリとエージェントリソースの浪費を招いていた。
+  - After: `spec-nue.md` Sec.7.2 で Sleep モードのトリガー、スナップショット保存・復元、`MCP Router`/`Editor Core` の停止と再開、`ConfigChangeEvent` の保留と `Audit Event` 記録を RFC 2119 で規定した。
+
 
 ## ToDo
-
-- [ ] P1: タブ・レイアウト管理
-  - ワークスペースを切り替えた際、それぞれのタブの開き具合やスクロール位置などを完全に復元する「セッション・スナップショット」。
-
-- [ ] P1: Sleep 機能
-  - 複数プロジェクトを切り替える際のメモリ消費を最小化するため、アクティブでないワークスペースを「Sleep」状態にする機構を導入する。
-  - トリガー
-    - 非アクティブ（デフォルト10分）経過
-    - または、レイル上のアイコンを右クリックして明示的に Sleep Session を実行。
-  - MCP Router / Editor Core を停止する
-  - アイコンクリック時にスナップショットから Core を復元し、エージェントを再起動。ユーザーは Sleep 前と全く同じカーソル位置・承認待ち状態で再開できる。
 
 - [ ] P1: `nue-semantic` のシングルトン運用
   - メモリ爆発を抑えるため、知能レイヤーはアプリ全体で唯一のインスタンスを共有する。

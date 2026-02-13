@@ -113,7 +113,13 @@
     - 4,Minimap,不透明度 0.6~0.8（フローティング）。,ファイル全体の鳥瞰図であり、背景に近い。
 
 - [ ] Q23. `Global Search` のフィルター切り替え（`workspace.search.exclude` を含む範囲/ディレクトリ選択）は在来の検索設定（グローバル/ワークスペース）とどのように同期すべきか、またこの状態を永続化する必要があるか未定義です。切り替えの範囲や持続性をどこで管理すべきか教えてください。 (`spec-nue.md` Sec.6.2.1)
-  - Answer: 未回答
+  - Answer: 「揮発的なセッション・スコープ」 と 「永続的な設定・スコープ」 に分離して管理したい。
+    - 揮発的なセッション・スコープ：検索時に、除外するディレクトリを正規表現パターンで入力・指定できる
+    - 永続的な設定・スコープ：グローバル・ワークスペースごとに設定として持たせることができる
 
 - [ ] Q24. `Semantic Match` 結果のうち `Command Hub` へ送る `Relevance Intent` の定義と構造（`Approval State` との組み合わせや `Audit Event` への記録フィールド）が未定義です。この `Relevance Intent` をどこで生成し、どのように `Intent Request` にマッピングすべきか教えてください。 (`spec-nue.md` Sec.6.2.2)
-  - Answer: 未回答
+  - Answer: 生成フローは次のとおり
+    - Generation (nue-semantic): ユーザーの自然言語入力を Phi-3/Qwen が解析し、候補となる ツールと引数（Action）を複数生成します。
+    - Internal Validation (Command Hub): 生成された intent が、現在のコンテキスト（エディタがフォーカスされているか等）で実行可能かをチェック。
+    - Candidate Presentation (UI): パレットに「アクションの候補」として表示。AIの確信度が高い場合は、決定打としてハイライト。
+    - Local Execution (nue-app): ユーザーが選択した瞬間、システム内の Dispatcher が該当する Rust 関数を直接実行。

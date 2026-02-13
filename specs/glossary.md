@@ -33,6 +33,8 @@
 | Intent Resolver | コンポーネント | `nue-semantic` のサブモジュールで、自然言語入力をミリ秒スケールでトークナイズし、MCP Tool や UI アクションにマッピングする推論エンジン。 | `approval_state` や context を含む実行プランを返す必要がある。 |
 | Local RAG | コンポーネント | `nue-semantic` が保持する、プロジェクトファイル名/関数名/設定名のベクトル/重み付きインデックス。曖昧な入力を意味的に関連する候補に橋渡しする。 | ファイルシステム変更時に 5 秒以内で更新。 |
 | Policy-Aware Scoring | 機能 | `nue-semantic` が `Authorization Policy` の `argument_constraints`/`execution_context` を評価し、実行可能な候補を上位にソートする評価機構。 | 実行可能性と `approval_state` を加味した優先順位付けを実現する（Sec.6.1.2）。 |
+| Session Snapshot | データ構造 | `Workspace Session` の状態を記録する `SessionSnapshot` で、開いているタブ/スプリット/カーソル位置/Shadow Buffer の差分/`ToolExecutionState` や `Command Hub` の未処理候補などを含むこと。 | `spec-nue.md` Sec.7.1 で更新タイミング・保存パス・復元要件を RFC 2119 で定義し、タブ・レイアウト管理および `Sleep Mode` 復元の基盤とする。 |
+| Sleep Mode | 機能 | 非アクティブな `Workspace Session` を `Workspace Rail` から Sleep させ、リソースを解放しながら `SessionSnapshot` で瞬時に復元できる休止/復帰メカニズム。 | `spec-nue.md` Sec.7.2 でトリガー、`Audit Event` 記録、`ConfigChangeEvent` 保留、復元後の差分復旧ルールを定義している。 |
 | Shadow Buffer | データモデル | エージェント変更を承認前に保持する一時差分領域。各差分には発生時刻・発行元・対象ファイル・`Agent Status` を含み、`Galaxy View` と `Legacy View` で列挙/レビューできる。初期リリースでは `Accept` のみを提供し、`Workspace Session` 単位と `ファイル単位` の承認粒度をサポートする。 | 承認後に本バッファへ反映し、永続化されない。 |
 | Accept | 操作 | Shadow Buffer の差分をユーザーが承認し、確定反映する操作。 | 初期リリースは `Accept` のみ提供。 |
 | Reject | 操作 | Shadow Buffer 上の差分をユーザーが却下し、該当変更を破棄する操作。 | `spec-nue.md` Sec.4.2.1 で `Audit Event` 確認後にエージェントへ再生成を促すフローを定義。 |
