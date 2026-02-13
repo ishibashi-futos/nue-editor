@@ -104,6 +104,22 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `FontContext` への登録は、UI 初期化の最初のフレームより前（`nue-ui` の `FontContext::register` 呼び出しの完了前）に終えておくことを **MUST** とする。フォント名のキーは `nue-font::text`, `nue-font::emphasis`, `nue-font::meta` のように命名し、描画レイヤーがキーを参照して一覧できるようにする。
 - 上記フォントを置換したい場合は、`FontContext` の `override` API を通じて別の `FontHandle` を挿入し、`Shadow Buffer` や関連する UI レイヤーはフォントキーを変えずに差し替えられる仕組みを維持することを **SHOULD** とする。
 
+### 3.5 エディタ補助パネル
+
+`Minimap` はエディタ右側に配置される 1px スケールの高解像度ファイルプレビューであり、`Editor Core` のバッファ・`Shadow Buffer`・`Git` 差分・`Command Hub` 検索結果・ビルド/テスト出力を統合して「ファイル全体の健康状態」を常に表現することを **MUST** とする。
+
+#### 3.5.1 Minimap
+
+- `Minimap` は GPU 補完描画（`GPUI` インスタンシング）を用いて 60fps を維持しつつ、1 フレームの間にすべての行/スコープを縮小表示し、`Editor Core` の変更・`Shadow Buffer` の差分・`Command Hub` の候補・`Audit Event` による検出をリアルタイムに反映することを **MUST** とする。描画対象は現在アクティブなバッファで、更新は同一 API でイベント駆動される。
+- マウス/タッチによるスクロール同期（`scroll_sync=true`）を提供し、ビュー移動時に `Command Hub` の `Navigation Mode` へのヒントを出しながらラグが生じた場合は直近位置を保持する `Backoff` 表示を行うことを **SHOULD** とする。ドラッグ操作のリリース時には `Editor Core` の `line_offset` にジャンプし、`Shadow Buffer` の `focus_id` を光らせることで次の差分位置へフォーカスを提供する。
+- 表示領域には次のオーバーレイを必ず重畳することを **MUST** とする。
+  - `Cyber Magenta` の帯でコンパイル/ビルド・LSP エラー（`Agent Status=Error`）を示し、`Audit Event` の `result=deny` に同期させて点滅し、ユーザーに即時の修正を促す。
+  - `Solar Flare` の点またはストロークで `Command Hub` や `Legacy View` の検索・シンボルハイライト結果を示し、モード（ファイル内/グローバル）に応じて点の密度・強度を動的に変化させる。
+  - `Git` 差分と `Shadow Buffer` 差分を区別するため、`Midnight Glass` 系の細線で Git 差分を、`Neon Cyan`/`Electric Lime` でAI 由来差分（`Shadow Buffer` エントリ）を描き、AI 差分には `Agent Status=Busy` のパルスアニメーションを付与して選択中の `Approval Unit` を浮き立たせる。
+  - `Partial Accept` や `Revert` 中の行は `Solar Flare` でフラッシュし、`Shadow Buffer` 側の `focus_id` とリンクした `Audit Event`（`result=partial_accept`/`revert`）の生成と同時に色が減衰することを **SHOULD** とする。
+- `Minimap` のクリック/タップ操作は `Command Hub` の `Approval Requests` と `Legacy View` のツリーを連動させ、該当差分を開いて確認・承認できるようにすることを **MUST** とする。
+- `Minimap` の表示更新は `Audit Event` (`type=minimap.overlay` など) を発行し、検索/ビルド/差分イベントが UI へ提示されたことを記録して監査できるようにすることを **SHOULD** とする。
+
 ---
 
 ## 4. MCP (Model Context Protocol) ツール仕様

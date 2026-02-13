@@ -20,6 +20,7 @@
 | Nebula | UI | 同一ディレクトリ内の低優先度ノード群をまとめた高レベル集合体。 | Galaxy View の 500 ノード超時に `Focus Score` で選別されたノードを代替表示する「星雲」クラスタ。 |
 | Workspace Rail | UI | ワークスペース切替と状態表示を担う左レイル UI。 | Slack-like は説明語で非用語。 |
 | Command Hub | UI | `Cmd + Shift + P` / `Ctrl + Shift + P` で開くモーダル型コマンドパレット。AIと人間が意図を共有し、MCP Tool呼び出しを起点としてショートカット/履歴/自然言語候補を表示する。 | `spec-nue.md` Sec.6.1 で構造とモードを定義する。 |
+| Minimap | UI | 編集中バッファの行構造・差分・検索・ビルド結果を 1px スケールで右側に可視化するヒートマップ状プレビュー。`Shadow Buffer`/`Command Hub`/`Audit Event` と同期し、クリックで該当差分の承認に移る。 | `spec-nue.md` Sec.3.5 で 60fps 表示、オーバーレイ色分け、`focus_id` 連携、`Audit Event` 連携を要求している。 |
 | Backoff State | UI | `Command Hub` が候補更新遅延（16ms を超過）を検知した際に表示する遷移状態。遅延中は直前候補を保持し、`Re-scoring…` / `awaiting nue-semantic` 等の進捗ラベルと `Action Mode`/`Navigation Mode` への移行ヒントを併せて出す。 | `spec-nue.md` Sec.6.1.1 で再スコアリング中の挙動を定義している。 |
 | Agent Status | 状態 | エージェント実行状態を示す列挙値。 | `Busy`/`Waiting`/`Error`/`Idle`。 `spec-nue.md` Sec.3.1.2 では各状態を `Neon Cyan`/`Solar Flare`/`Cyber Magenta`/`Dusty Grey` などで色/アニメーション表現するルールを定義し、`Workspace Rail`・`Command Hub` などに一貫して反映することを要求している。 |
 | Intent / Smart Search | 機能 | `Command Hub` の自然言語入力モードで、`nue-semantic` を中心とした候補推論により `MCP Tool` や UI アクションを提案する。 | 100ms以内の候補生成と、発行元・Approval Stateを付与するプロセスを含む（Sec.6.1.1）。 |

@@ -57,14 +57,13 @@
 - [x] P1: 使用可能フォントの具体化と埋め込み
   - Before: UI で利用する等幅フォント・強調フォント・メタフォントやそれらの埋め込み手順が未定義で、マルチプラットフォームでの字形の一貫性が確保できなかった。
   - After: `spec-nue.md` Sec.3.4 に JetBrainsMono ファミリ（Regular/Bold/Italic）の用途割当を RFC 2119 で定義し、`nue-ui` の `FontContext` へのバイナリ埋め込み・初期化順序・フォールバック・オーバーライド要件を明記した。
+- [x] P2: Minimap の可視化/連携仕様
+  - Before: エディタ右側に配置される高解像度プレビューの要件や `Shadow Buffer`/`Command Hub`/`Audit Event` との同期方法が曖昧で、CI 出力や差分の可視化方針が未定義。
+  - After: `spec-nue.md` Sec.3.5 に Minimap の 60fps 表示要件、エラー/検索/差分オーバーレイ、`Shadow Buffer` との `focus_id` 連携、クリック操作の `Command Hub` への橋渡しおよび `Audit Event` 記録について RFC 2119 で定義した。
 
 
 ## ToDo
 
-- [ ] P2: Minimapの実装
-  - ファイル右側に配置される高解像度プレビュー。
-  - コンパイルエラー（Cyber Magenta）や検索ヒット箇所をドットとして重畳し、ファイル全体の「健康状態」を俯瞰可能にする。
-  - Git Diff / AI Agent経由の編集を俯瞰できる
 
 - [ ] P2: Smart Gutter
   - 行番号の隣に、Gitの差分（既存）と AI の Shadow Buffer 差分を区別して表示。
