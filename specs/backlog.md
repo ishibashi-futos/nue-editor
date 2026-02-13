@@ -18,6 +18,10 @@
   - Before: `MCP Tool` 実行可否と承認粒度が未定義で、セキュリティ境界が曖昧であった。
   - After: `spec-nue.md` Sec.4.1 に Authorization Policy エントリ構造（`policy_id`/`argument_constraints`/`execution_context`/`approval_state`/`effect`/`priority`）、引数ハッシュマッチ、`deny` 優先の評価順、`requires_user_consent`/`auto_allow`/`blocked` の承認フロー、`Audit Event` 連携を RFC 2119 スタイルで記載した。
 
+- [x] P1: Command Hub/Intent候補フローを定義する
+  - Before: `Command Hub`/Intent候補のモード、ローカルAI、実行計画との連携が未定義で、MCP Router および Shadow Buffer との整合性が曖昧であった。
+  - After: `spec-nue.md` Sec.6.1 でコマンドパレットのモード・候補更新要件、`nue-semantic`（Intent Resolver/Local RAG/Policy-Aware Scoring）の構成と `Audit Event`/Shadow Buffer との連携を RFC 2119 形式で明記した。
+
 ## ToDo
 
 - [ ] P1: デザイン・カラーの具体化を進める
@@ -48,25 +52,6 @@
     - メタ情報 / コメント,JetBrainsMono-Italic.ttf,コメントやMuted Textの区別。
   - UIの初期化プロセス内で埋め込んだバイナリを `FontContext` に登録
 
-- [ ] P1: コマンドパレット (The Command Hub)仕様の追加・具体化
-  - コマンドパレットは `Cmd + Shift + P` (または `Ctrl + Shift + P`) で呼び出される、モーダル型のインテリジェント入力インターフェースである。 vscodeのコマンドパレットのようなものを想定
-  - モード・プレフィックス
-    - `>`: (Action Mode): エディタ機能や設定の実行（例: `> Terminal: Split Terminal`, `> Markdown: Open Preview to Side`）。
-    - `:`: (Navigation Mode): ファイル検索
-    - `prefixなし`: (Intent / Smart Search): 自然言語(英語)によるアクション実行、またはファイル名検索。
-
-- [ ] Intent / Smart Search仕様の具体化
-  - ローカル生成AIエンジン（PhiなどのSML）を用いた、自然言語によるアクション実行およびファイル検索
-  - llama.cppをバインドした、`nue-semantic` として提供
-  - インテントの即時翻訳 (Local Intent Resolver)
-    - 役割: ユーザーがパレットに入力した自然言語を、ミリ秒単位で「MCP ツール実行」または「UI アクション」にマッピングします。
-    - メリット: 外部 API を叩かないため、オフラインでも動作し、タイピングとほぼ同時に候補が更新されます。
-    - 例: 「test」と打てば、Phi が runtime.test へのショートカットを最上位に推論して表示します。
-  - セマンティック・インデックス (Local RAG)
-    - 役割: プロジェクト内の全ファイル名、関数名をベクトル化（またはキーワード重み付け）して保持。
-    - 機能: 「Connect database」といった曖昧な入力に対し、Phi が関連度の高いファイルを推論してリストアップします
-  - エージェントへの「橋渡し」
-    - ローカルエンジン（Phi）が「これは現在のコンテキストだけでは解決できない複雑な指示だ」と判断した場合にのみ、外部エージェントへのリクエストをユーザーに提案します。
 
 - [ ] P1: MCPプロバイダの「ドメイン境界」とライフサイクル
   - エージェントが run_command 等を呼び出した際、それがどの「ワークスペースのコンテキスト」で実行されるかの紐付けが甘い

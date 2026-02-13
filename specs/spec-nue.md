@@ -204,6 +204,35 @@ Nueは、Slackのようなマルチワークスペース管理を最上位に据
 5. **Galaxy Feedback**: Galaxy View上で、AIが編集しているファイルが激しく発光（パルス）。
 6. **人間の承認**: ユーザーが差分を確認し、`Accept`。変更が本番バッファへマージされる。
 
+## 6.1 Command Hub と Intent/Smart Search
+
+`Command Hub`（コマンドパレット）は、ユーザーが自然言語やショートカットを使って操作を起点とする中心UIであり、AIエージェントと人間が同じテンポで「意図」を共有するためのインターフェースである。
+
+### 6.1.1 Command Hubの構造
+
+- `Command Hub` は `Cmd + Shift + P`（macOS）または `Ctrl + Shift + P`（その他）で呼び出すモーダルオーバーレイで、アクション候補と履歴を一覧表示することを **MUST** とする。
+- `Command Hub` は次の入力モードをサポートし、それぞれで優先的な候補生成を行うことを **MUST** とする。
+  - `>` プレフィックス（Action Mode）: 明示的な `MCP Tool` 実行、設定変更、UIコマンドを記述する。例: `> Terminal: Split Terminal`。
+  - `:` プレフィックス（Navigation Mode）: ファイル名・シンボル名によるナビゲーション。例: `:src/lib.rs`。
+  - プレフィックスなし（Intent / Smart Search）: 自然言語（英語）で意図を入力し、`nue-semantic` による候補推論を得る。例: `test database connection` や `document API changes`。
+- モードはリアルタイムに切り替わり、入力中のテキストに応じて候補リストを 16ms 以内に更新することを **SHOULD** とする。
+- 各候補には発行元（AIエージェント/ユーザー）、必要な `MCP Tool`、`Approval State`（`auto_allow`/`requires_user_consent`/`blocked`）を付与し、選択時に即座に `Audit Event` を作成することを **SHOULD** とする。
+- 選択された候補は `MCP Router` へ `Intent Request` を送信し、`approval_state` に応じて自動的に処理されるので、`Command Hub` は `Audit Event` 経路を共有して `Shadow Buffer` との連携を疎通させることを **SHOULD** とする。
+
+### 6.1.2 Intent/Smart Search のコンポーネント
+
+- Intent/Smart Search は **`nue-semantic`** というローカル生成AIエンジンを中心とし、Phi やその他の Small Machine Learning（SML）モデルをバインドして動作することを **MUST** とする。外部APIは基本的に利用せず、オフライン環境でも動作する必要がある。
+- `nue-semantic` は次のサブシステムを組み合わせて候補を生成することを **MUST** とする。
+  - **Intent Resolver（局所意図変換）**: ユーザーの自然言語入力をトークン化し、`MCP Tool` 実行やUIアクションにマッピングするミリ秒スケールの推論モジュール。
+  - **Local RAG（Local Retrieval-Augmented Generation）**: プロジェクト内のファイル名、関数名、設定名をベクトル化または重み付けしたインデックスで保持し、曖昧な入力に対して意味的に関連する候補へ橋渡しする。
+  - **Policy-Aware Scoring**: `Authorization Policy` に定義された `argument_constraints`/`execution_context` を照合し、実行可能な候補のみを上位にソートする。
+- `nue-semantic` は、候補の生成・表示・選択を 100ms 以内で完了させるように設計され、遅延が発生する場合は進行中の推論を UI 上でステータス表示することを **SHOULD** とする。
+- `nue-semantic` が現在のコンテキストだけでは実行不可能（例: セキュリティ上の制限や外部リソースへの依存）と判断した場合、`Command Hub` はユーザーへ外部エージェント（例: 高性能クラウドAI）への問い合わせを提案し、その提案は `approval_state=requires_user_consent` として `Audit Event` に記録されることを **SHOULD** とする。
+- `Intent/Smart Search` は候補の選択時に `MCP Router` への `run_command` や `apply_patch` の呼び出しを発生させる実行プランを返し、その過程で `Shadow Buffer` の差分として登録されるエントリと整合することを **MUST** とする。
+- `Local RAG` に使うインデックスはファイルシステムの変更（追加/削除/リネーム）を検知した後 5 秒以内に部分更新し、入力ミスや類似語を許容するキーワードマッチを備えることを **SHOULD** とする。
+
+以上により `Command Hub` が意図を中心とした起点となり、AIエージェントと人間が共に進化するループの起点として機能する。
+
 ---
 
 ## 7. フロントエンド・デザイン実装プロセス
@@ -215,17 +244,3 @@ Nueは、Slackのようなマルチワークスペース管理を最上位に据
 1. プロジェクト内にUI定義ファイル（CSS/SVG）を置く。
 2. Codex（エージェント）にMCP経由でそのファイルを編集させ、デザインの微調整（色、レイアウト）を行わせる。
 3. 確定したデザイン数値を `nue-ui` の GPUI 定義に落とし込む。
-
----
-
-### 次のアクション
-
-この仕様書をベースに、いよいよ**プロジェクトの初手（リポジトリの初期化）**に移ります。
-
-**Would you like me to ...?**
-
-1. **`Cargo.toml` (Workspace全体) の書き出し**: `nue-config`, `nue-ui`, `nue-core`, `nue-mcp` の4クレート構成を作成する。
-2. **`nue-config` の最小実装**: 設定ファイルと環境変数をマージするRustコードを書く。
-3. **GPUIでの「左レイル（ワークスペースバッヂ付き）」のプロトタイプコード** を作成する。
-
-プロジェクト「Nue」、始動の準備は整いました。どこから手を付けましょうか？
