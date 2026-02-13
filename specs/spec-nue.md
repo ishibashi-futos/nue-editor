@@ -1,40 +1,71 @@
-# 次世代AIネイティブ・エディタ「Nue」詳細仕様書
+# 次世代AIネイティブ・エディタ「Nue」仕様書
 
-## 1. プロジェクト・ビジョン
+## 1. Summary
 
-Nueは、従来の「コードを書くためのツール」を脱却し、AIエージェント（Codex等）が能動的に作業し、人間がそれを高度な視覚情報で監督・操縦するための**「エージェント・オーケストレーション環境」**である。
+### 1.1 プロジェクト・ビジョン
 
----
+Nueは、従来の「コードを書くためのツール」を超え、AIエージェントが能動的に作業し、人間が高密度な視覚情報を通じて監督・承認するためのエージェント・オーケストレーション環境である。
 
-## 2. システムアーキテクチャ（階層構造）
+### 1.2 プロダクトの提供価値
 
-Nueは、Slackのようなマルチワークスペース管理を最上位に据えた、マルチプロセス・アーキテクチャを採用する。
+AIエージェントツール（CodexやClaude Codeなど）と高度に連携し、開発速度と人間の判断品質を向上させるため、エディタ内にAIエージェントツールとの連携を色濃く反映させる。MCPによる接続と、`Shadow Buffer`によって、変更を追従しつつ、「AIによる変更」を確実にレビューできるようにすることで開発品質を高める。
 
-### 2.1 App Host (Nue Runtime)
+### 1.3 システム全体像（高レベル）
 
-* **役割**: 全セッションのライフサイクル管理、グローバル設定、通知集約。
-* **Workspace Switcher**: 左端のレイルで、複数プロジェクトを切り替える。
-* **Global Config**: `~/.config/nue/config.yaml` 及び環境変数を統括。
+Nueは `App Host` を最上位に持ち、複数の `Workspace Session` を独立実行単位として管理する。各セッションは AI Agent、MCP Router、Editor Core、UI View を内包し、ワークスペースごとの分離と高速な切り替えを保証する。
 
-### 2.2 Workspace Session (独立した実行単位)
+### 1.4 スコープ / 非スコープ
 
-各ワークスペースは、以下のコンポーネントを独自にインスタンス化する。
+- スコープ:
+  - 高機能エディタとしての機能
+    - ワークスペース管理
+    - ファイルツリー、VCS連携
+    - ターミナル機能
+    - コマンドパレット機能とLLMを利用したコマンドサジェスチョン
+    - Sleep/復元
+    - 検索
+  - AI恊働機能: MCP 認可、Shadow Buffer 承認
+- 非スコープ
+  - 高度なアクセシビリティ対応の全面実装
+  - AIエージェント自体の実装
+  - 日本語、英語以外の多言語対応
 
-* **AI Agent**: プロジェクトごとに最適化されたエージェントプロセス。
-* **MCP Router**: エージェントが利用できるツール群のゲートウェイ。
-* **Editor Core**: バッファ、VFS、内部コマンド実行エンジン。
-* **UI View**: Legacy (Tree) と Galaxy (Graph) の描画。
+## 2. Core Concepts
 
----
+### 2.1 実行モデル: App Host と Workspace Session
 
-## 3. UI/UX デザイン仕様
+`App Host` はライフサイクル、設定、監査、通知を統括し、`Workspace Session` は AI 実行・編集・UI 表示を分離して処理する。これにより、複数プロジェクトを安全に並行管理できる。
 
-### 3.1 ビジュアル・アイデンティティ
+### 2.2 承認モデル: Approval Unit / Shadow Buffer / Audit Event
+
+AI の変更は直ちに本バッファへ反映せず、`Shadow Buffer` に格納される。ユーザーは `Approval Unit`（workspace/file/hunk）単位で承認操作を行い、すべての操作は `Audit Event` として追跡される。
+
+### 2.3 操作モデル: Command Hub / Intent / Smart Search
+
+`Command Hub` はアクション実行、ナビゲーション、自然言語意図の入口である。`nue-semantic` は意図解釈と検索候補生成を担い、承認状態と連動した実行可能な提案のみを前面に出す。
+
+### 2.4 境界モデル: MCP Router と Provider のドメイン境界
+
+`MCP Router` はツール呼び出しの唯一の入口として認可・拒否・再試行制御を行う。ツールは `workspace_root` 境界内で実行され、境界逸脱は即時 deny として監査記録される。
+
+### 2.5 設定モデル: Source hierarchy / hot reload scope / 伝播制御
+
+設定は環境変数、ワークスペース設定、グローバル設定、デフォルトの優先順でマージされる。`ConfigChangeEvent` は `hot_reload_scope` を持って配信され、依存順序に従って段階的に再初期化される。
+
+### 2.6 継続性モデル: セッション復元 / Sleep / リソース管理
+
+`SessionSnapshot` は開いていたタブ、差分状態、実行キューを保持し、Sleep からの復帰時に UI と実行状態を再構築する。これによりリソース節約と作業継続性を両立する。
+
+## 3. Detailed Spec
+
+### 3.1 UI/UX デザイン仕様
+
+#### 3.1.1 ビジュアル・アイデンティティ
 
 * **テーマ**: 「Neon-Night」（深いネイビーを基調に、シアン、マゼンタの発光アクセント）。
 * **描画エンジン**: Rust `GPUI` によるGPU加速。60fpsのスムーズなアニメーションとスクロール。
 
-#### 3.1.1 カラーパレット
+##### 3.1.1.1 カラーパレット
 
 Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分を明示する。
 
@@ -53,7 +84,7 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
 
 各色は直線的に使い回しを避け、視覚上の階層を保持するために `Neon Cyan` / `Cyber Magenta` / `Solar Flare` 等の高彩度色は限定的なハイライトやステータス表示にのみ使用することを **SHOULD** とする。
 
-#### 3.1.2 エージェント状態と差分表示の色規約
+##### 3.1.1.2 エージェント状態と差分表示の色規約
 
 `Agent Status`（Busy/Waiting/Error/Idle）は UI 上で以下の色/エフェクトで表現し、状態遷移の判別を利用者が瞬時に行えるようにすることを **MUST** とする。
 
@@ -72,7 +103,7 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
 
 アクセシビリティや高彩度モードといった特別対応は、本アプリケーションが開発者個人の利用を想定しているため、主要仕様としては取り扱わない。ただし、暫定的な検討内容やトリガー候補は `specs/spec_accessibility.md` でまとめており、必要に応じてそちらを参照する。
 
-### 3.2 ワークスペース・レイル (Slack-like Switcher)
+#### 3.1.2 ワークスペース・レイル
 
 各アイコンにエージェントの**ライブステータス**を表示する。
 
@@ -81,18 +112,18 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
 * **Error (Magenta Vibration)**: ビルド失敗や例外発生。
 * **Idle (Dimmed)**: 待機状態。
 
-### 3.3 エクスプローラー：Legacy View
+#### 3.1.3 エクスプローラー（Legacy View）
 
 ヘッダーのトグルボタンにより複数モードを準備する設計ではあるが、初期リリースでは Legacy View を中心に据え、ディレクトリツリーを活用したファイル検索と構造把握を重視する。Legacy View は従来型の階層表示として、ファイル/フォルダの展開・折りたたみ・フルテキスト検索を低遅延で提供し、ユーザーが物理構造と論理構造を素早く行き来できるようにする。
 
 - **Legacy View**: 階層的なディレクトリツリーを基盤とし、ファイルの開閉・パス表示・差分のマーカー付与を行う。Agent Status に応じたハイライトや承認済みラインの彩度調整などはこのビューで完結する。
 - **Galaxy/Nebula View**: `Nebula`/`Galaxy View` に関する機能は将来的に段階的導入される計画であり、以降のバージョンで必要な要件とヒューリスティックを別途 `specs/spec_galaxy_view.md` にまとめている。本仕様では意図的に、このビューの詳細な描画要件やパフォーマンスルールを除外する。
 
-### 3.4 タイポグラフィとフォント
+#### 3.1.4 タイポグラフィ / フォント埋め込み / FontContext
 
 Nue の UI は背景のダークトーンとネオン系アクセントのコントラストの中で文字の可読性を確保することが不可欠である。フォントの種類・埋め込み・利用パターンは以下の要件を満たすことを **MUST** とする。
 
-#### 3.4.1 標準フォントと利用領域
+##### 3.1.4.1 標準フォントと利用領域
 
 - `JetBrainsMono-Regular`（標準コード用）: エディタ本文、差分ラベル、コマンドリストなど主要テキストはこのフォントを優先的に使用することを **MUST** とする。等幅かつリガチャに偏りがない字形を選び、高彩度背景でも文字の輪郭が鮮明に見える存在感を維持する。
 - `JetBrainsMono-Bold`（キーワード・強調）: AIの提案や `Command Hub` の操作候補、`Shadow Buffer` のヘッダーには太字を用いて視線を誘導することを **SHOULD** とする。強調項目が枠線や色に埋もれないよう、太さと間隔のバランスが保たれるように設定する。
@@ -101,18 +132,18 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - メニューやサイドバーなど UI レイヤーのテキストは英語のみを前提とし、`JetBrainsMono` 系フォントの埋め込みだけで描画することを **SHOULD** とする。日本語や絵文字を含むテキストは UI で避け、どうしても必要なときは OS フォントに頼らず `FontContext` が埋め込んだ JetBrains Mono を再利用して表示トーンを揃えることで視覚的一貫性を守る。
 - エディタ本文では JetBrains Mono と混在する日本語や特殊文字を `fallback_fonts`（例: Menlo, Monaco, Courier New）で補完し、`FontContext` がそれらを優先的に選択するよう設定することを **SHOULD** とする。日本語グリフは若干縮小（0.5〜0.9 倍）し、ベースラインを -2〜-4 px 程度下げる補正を施すことで「日本語だけが浮く」印象を軽減し、Emoji/記号は OS のカラーフォントに任せる。この混在状態でも `FontContext` が実際に選択したフォント名をログやデバッガで参照可能にしておくことを **SHOULD** とする。
 
-#### 3.4.2 埋め込みと `FontContext` 登録
+##### 3.1.4.2 埋め込みと `FontContext` 登録
 
 - `Nue` は `nue-ui`（GPUI）の初期化時点で `JetBrainsMono-Regular`/`Bold`/`Italic` をバイナリに埋め込み、そのバイト列を `FontContext` に登録することで、オフライン環境や制御されたランタイムでも同一の字形を保証することを **MUST** とする。
 - 埋め込みフォントにはライセンスパッケージ（例: JetBrains Mono の SIL Open Font License）を同梱し、バイナリ内で `FontContext` Bundled Font Catalog にメタ情報（ファイル名・ライセンス）を付与することを **SHOULD** とする。
 - `FontContext` への登録は、UI 初期化の最初のフレームより前（`nue-ui` の `FontContext::register` 呼び出しの完了前）に終えておくことを **MUST** とする。フォント名のキーは `nue-font::text`, `nue-font::emphasis`, `nue-font::meta` のように命名し、描画レイヤーがキーを参照して一覧できるようにする。
 - 上記フォントを置換したい場合は、`FontContext` の `override` API を通じて別の `FontHandle` を挿入し、`Shadow Buffer` や関連する UI レイヤーはフォントキーを変えずに差し替えられる仕組みを維持することを **SHOULD** とする。
 
-### 3.5 エディタ補助パネル
+#### 3.1.5 エディタ補助パネル（Minimap / Structure Path / Smart Gutter）
 
 `Minimap` はエディタ右側に配置される 1px スケールの高解像度ファイルプレビューであり、`Editor Core` のバッファ・`Shadow Buffer`・`Git` 差分・`Command Hub` 検索結果・ビルド/テスト出力を統合して「ファイル全体の健康状態」を常に表現することを **MUST** とする。
 
-#### 3.5.1 Minimap
+##### 3.1.5.1 Minimap
 
 - `Minimap` は GPU 補完描画（`GPUI` インスタンシング）を用いて 60fps を維持しつつ、1 フレームの間にすべての行/スコープを縮小表示し、`Editor Core` の変更・`Shadow Buffer` の差分・`Command Hub` の候補・`Audit Event` による検出をリアルタイムに反映することを **MUST** とする。描画対象は現在アクティブなバッファで、更新は同一 API でイベント駆動される。
 - マウス/タッチによるスクロール同期（`scroll_sync=true`）を提供し、ビュー移動時に `Command Hub` の `Navigation Mode` へのヒントを出しながらラグが生じた場合は直近位置を保持する `Backoff` 表示を行うことを **SHOULD** とする。ドラッグ操作のリリース時には `Editor Core` の `line_offset` にジャンプし、`Shadow Buffer` の `focus_id` を光らせることで次の差分位置へフォーカスを提供する。
@@ -124,7 +155,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `Minimap` のクリック/タップ操作は `Command Hub` の `Approval Requests` と `Legacy View` のツリーを連動させ、該当差分を開いて確認・承認できるようにすることを **MUST** とする。
 - `Minimap` の表示更新は `Audit Event` (`type=minimap.overlay` など) を発行し、検索/ビルド/差分イベントが UI へ提示されたことを記録して監査できるようにすることを **SHOULD** とする。
 
-#### `focus_id` の生成と同期
+##### 3.1.5.2 `focus_id` の生成と同期
 
 `focus_id` は `Minimap`、`Structure Path`、`Smart Gutter`、`SessionSnapshot`、および `Command Hub` が共有する差分追跡の統一識別子であり、`Shadow Buffer` に差分エントリ（ハンク）が登録されたタイミングで生成される **MUST** とする。焦点となる差分はハンク単位（差分塊）で記録し、**MUST** で一意な値を割り当てる。
 
@@ -142,7 +173,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 - `focus_id` は `Shadow Buffer` エントリが完全に `Accept`/`Reject` された時点で無効化され、同じロジックの差分が再度生成された場合は新しい `focus_id` を再作成することを **MUST** とする。このライフサイクルを厳密に管理することで、`Audit Event` やログが古い差分と紐づき続けるのを防ぎ、UI からの参照整合性を維持することができる。
 
-### 3.6 Structure Path
+##### 3.1.5.3 Structure Path
 
 `Structure Path` はエディタ上部に常設される階層ナビゲーションバーであり、「Project > Folder > File > Class/Module > Method/Function」のパスを常に表示し、変更のコンテキストと承認状態を一目で把握できることを **MUST** とする。
 
@@ -154,7 +185,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 `Structure Path` は `Legacy View`・`Minimap`・`Command Hub` のいずれのモードにおいても現在位置と未処理差分をつなぎとめる役割を果たし、ユーザーが自身の作業対象を見失わないよう一貫したナビゲーション体験を提供することを **MUST** とする。
 
-### 3.7 Smart Gutter
+##### 3.1.5.4 Smart Gutter
 
 `Smart Gutter` は、エディタの行番号領域の隣に配置されたコンテキスト情報表示領域であり、`Shadow Buffer` 上の AI 差分、`Git` 差分、`Agent Status`、および `Audit Event` の状態を一目で識別できるようにすることを **MUST** とする。`Smart Gutter` は `Structure Path`/`Command Hub`/`Minimap` と双方向で同期し、線の左右どちらに差分が存在するかや承認リクエストの焦点がどこにあるかを明確に伝える。
 
@@ -166,7 +197,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 `Smart Gutter` の仕様は `specs/glossary.md` に新しい用語として定義し、`specs/backlog.md` に `Smart Gutter` タスクの解決と `Command Hub`/`Shadow Buffer` との依存関係を追記しておくことを **MUST** とする。
 
-### 3.7.1 オーバーレイのスタッキング・コンテキスト
+###### 3.1.5.4.1 オーバーレイのスタッキング・コンテキスト
 
 `Command Hub`/`Smart Gutter`/`Editor Decoration`/`Minimap` などのオーバーレイが重なる場合、ユーザーの現在の操作対象を最前面に出す「スタッキング・コンテキスト」を維持することを **MUST** とする。優先順位は以下のとおり定義し、各レイヤーは `focus_id` との一致で自動的に透明度・インタラクション可否を切り替える。
 
@@ -179,7 +210,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 ---
 
-## 4. MCP (Model Context Protocol) ツール仕様
+### 3.2 MCP ツール仕様
 
 エージェント（Codex等）は、以下のMCPツールを介してのみ「Nue」を操作できる。これにより、自由度と安全性を両立する。
 
@@ -194,11 +225,11 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 ---
 
-### 4.1 MCP Router Authorization Model
+#### 3.2.1 Router Authorization Model
 
 `MCP Router` はエージェントから呼び出される全ての `MCP Tool` を受け取り、認可を通じて Core への影響を制御するセキュリティ境界である。`Authorization Policy` は `Domain`/`Tool`/`Permit Arguments`/`Execution Context`/`Approval State` の組み合わせで 定義され、エントリが存在しない呼び出しは暗黙の拒否とすることでホワイトリスト運用を保証する。
 
-#### 4.1.1 Authorization Policy Entry Structure
+##### 3.2.1.1 Authorization Policy Entry Structure
 各 `Authorization Policy` は個々のエントリの集合とし、各エントリは次のフィールドを **MUST** もしくは **SHOULD** に基づいて定義する必要がある。
 
 - `policy_id`（**SHOULD**）: 不服申立てや `Audit Event` に記録するための識別子。
@@ -212,7 +243,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 `argument_constraints` は `Permit Arguments` の実体であり、**MUST** かつ明示的な `hash` マッチを持たない限り、引数の型や値を許可しない。エントリは任意で `allow_extra_arguments=true` を付与して引数の拡張を許可できるが、このフラグを使う場合も少なくとも `argument_constraints` に1つ以上の名前を含め、最低限の引数情報を保つことを **MUST** とする。
 
-#### 4.1.2 Policy Evaluation and Conflict Resolution
+##### 3.2.1.2 Policy Evaluation and Conflict Resolution
 `MCP Router` は呼び出しごとに次のパイプラインで候補ポリシーを絞り込むことを **MUST** とする。
 
 1. `domain`/`tool` 項目と一致するエントリを抽出する。
@@ -234,7 +265,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 `Authorization Policy` の定義に変化（`config_revision` の更新、`Workspace Session` の切り替えなど）があった場合、既存の承認ステートは無効化され、対象の `MCP Tool` 呼び出しは再評価されることを **MUST** とする。
 
-#### 4.1.3 Approval State and User Flow
+##### 3.2.1.3 Approval State and User Flow
 `approval_state` は、ユーザーまたは自動化の承認要件を示す属性であり、次の値を **MUST** または **SHOULD** で選択する。
 
 - `auto_allow`: `MCP Router` は `allow` のみを返し、`Audit Event` に `approval_state=auto_allow` を記録する。明示的な `Audit Event` により、`App Host` が自動化の挙動を追跡できる。
@@ -245,7 +276,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 ユーザーが `Accept` するまで、要求された `MCP Tool` 呼び出しはエージェントに対して明示的な `deny` として返され、エージェントは `Audit Event` で得た `message` を参照して再試行を抑制する。`requires_user_consent` のポリシーが `Shadow Buffer` の差分と紐づかない呼び出し（例: `run_command`）では、UI に `Approval Request` を表示し、`MCP Router` は `Audit Event` に `approval_unit=manual` で記録する。
 
-#### 4.1.4 Authorization Denial Feedback Loop
+##### 3.2.1.4 Authorization Denial Feedback Loop
 
 `MCP Router` は、エージェントが繰り返し `deny` を受けたことで無限ループや過剰リトライに陥らないよう、明示的なフィードバックを提供する責務を持つ。
 
@@ -255,7 +286,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - 連続 `deny` が UI に反映されない場合、`MCP Router` は `Agent Status` を `Error` に遷移させ、`Audit Event` を通じて `App Host` に `Feedback Loop` 通知を送信することを **SHOULD** とする。`App Host`/`UI View` は `Workspace Rail` や `Command Hub` に「設定 {resolution_hint.config_path} を修正して再試行」等のバナーを表示し、関係する設定キーの `ConfigChangeEvent` を強調してユーザーが迅速に対応できるようにすることを **SHOULD** とする。
 - `blocked` ポリシーで拒否された呼び出しは、その `policy_id` に対して `DeniedRequestHistory` を 24 時間保持し、同一エージェントからの再送を即時 `deny` することを **SHOULD** とする。その際 `Audit Event` には「管理者に {policy_id} の再承認を依頼」や「外部承認フローを含む `resolution_hint`」を含めて、再試行が無意味であることを明示することを **SHOULD** とする。
 
-### 4.2 Shadow Buffer と承認フロー
+#### 3.2.2 Shadow Buffer と承認フロー
 
 `Shadow Buffer` はエージェントが行った差分編集を本バッファにマージする前に保持する構造体であり、各差分はファイル単位と `Workspace Session` 単位の両方で区分される。各差分には、発生時刻、差分の範囲、発行元エージェント、現在の `Agent Status` を付与することで、レビューと追跡が可能である。
 
@@ -271,7 +302,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 4. **追加承認操作**
    これらの操作は v1.0 以降の段階的拡張項目とする。ToDo セクション（Sec.8）で `Reject`/`Partial Accept`/`Revert` の差分状態遷移と `Audit Event` 記録ルールを整理し、実装段階で詳細化する。
 
-### 4.2.1 承認操作セットと Approval Unit
+##### 3.2.2.1 承認操作セットと Approval Unit
 
 `Shadow Buffer` は `Accept` に加えて `Reject`・`Partial Accept`・`Revert` の操作セットを提供し、各操作は明示的な `Approval Unit`（`workspace`/`file`/`hunk`）と結びつけて UI に提示されることを **MUST** とする。すべての操作は `Audit Event` に `result` を含め、ユーザーや監査システムが操作の種類と影響範囲を辿れるようにする。
 
@@ -280,13 +311,13 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `Partial Accept`（**SHOULD**）: 大粒度差分の一部を複数の `hunk`/`line_range` として承認し、残像を新たな `focus_id` で保持する。`Shadow Buffer` は承認済み範囲（連続・非連続を問わず）を `Editor Core` にマージし、残余行は再生成された差分として保持し続ける。`Audit Event` には `result=partial_accept`、`approval_unit=hunk`、`approved_ranges`（開始/終了行のリスト）、`remaining_ranges`、`focus_id`（残差分）、`related_event_id`（元イベント）を含め、`Command Hub`/`Structure Path`/`Minimap` が継続追跡できるようにする。UI ではチェックボックス・ドラッグ選択・`Solar Flare` ハイライトを用いて承認済みセクションを薄く表示し、複数 `focus_id` を明示することを **SHOULD** とする。
 - `Revert`（**SHOULD**）: 過去の `Accept` を取り消し、逆向き差分を `Shadow Buffer` に再登録する操作。`Audit Event` には `result=revert`、`reverted_event_id`（元 Accept イベントの `event_id`）、`approval_unit`、`focus_id`（逆差分）、`file_path`、`agent_id`、`resolution_hint` を含め、再承認が必要な場合は `approval_state=pending` で再度 `requires_user_consent` 承認を展開することを **MUST** とする。`Shadow Buffer` は `related_event_id` を付与して元の差分と関連づけ、`Command Hub`/`Smart Gutter`/`Structure Path` が経路を追跡できるようにする。`UI View` は `Solar Flare` でマーキングされた行に `Esc`/`Undo` 操作を提供し、誤操作をキャンセルできるようにすることを **SHOULD** とする。
 
-### 4.2.2 UI / Core 整合と `Audit Event`
+##### 3.2.2.2 UI / Core 整合と `Audit Event`
 
 `Shadow Buffer` での承認操作は `UI View` の差分一覧（`Command Hub` の `Approval Requests` パネル含む）と `Editor Core` の状態を常に一致させることを **MUST** とする。具体的には、`UI View` 上の操作が発火したとき、同じ `approval_unit` を含む `Audit Event` が生成され、それが `Editor Core` のマージ/削除/再生成（`Revert`）とトリガー同期すること。`Partial Accept` では `Audit Event` に `approved_ranges`/`remaining_ranges` を記録し、`focus_id` の再生成と `related_event_id` で元イベントの追跡ができるようにし、`Revert` では `related_event_id`/`reverted_event_id` を用いて UI が逆方向差分と元許可経路を結びつけることを **SHOULD** とする。`Shadow Buffer` は、`Partial Accept` や `Revert` により差分の行番号が変化した場合にも `focus_id` を更新し、対象ノードを再ハイライトすることで UI 側の整合性を保つことを **SHOULD** とする。
 
 すべての承認操作について、`Audit Event` には `result`（`accepted`/`rejected`/`partial_accept`/`revert`）と併せて `approval_unit`（`workspace`/`file`/`hunk`）を必ず含めることを **MUST** とし、その情報により `App Host` の監査パネルが絞り込み可能になる。`Partial Accept` により細分化された差分は `related_event_id` で親イベントと関連づけることを **SHOULD** とし、`Revert` の再承認では同一 `policy_id` を参照して過去のキャッシュを破棄する処理を **MUST** とする。
 
-### 4.3 ターミナルエミュレーター最小要件
+#### 3.2.3 ターミナルエミュレーター最小要件
 
 ターミナルエミュレーター機能はエージェントが `run_command` を通じて実行するテスト・ビルド・デバッグ出力と連携する。初期リリースにおいて `Terminal Emulator` は以下の要件を満たすこと。
 
@@ -296,7 +327,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 これらの要件が満たされない場合、`Audit Event` を通じてユーザーへエラー状態を通知し、`MCP Router` はエージェントが再度 `run_command` を要求する前に運用上の確認を促す。
 
-### 4.4 Audit Event ライフサイクル
+#### 3.2.4 Audit Event ライフサイクル
 
 `MCP Router` はすべての `MCP Tool` 呼び出し、`Shadow Buffer` 承認操作、`Authorization Policy` による拒否などを `Audit Event` として記録し、`App Host` に送信する。`Audit Event` は以下の要件を満たす。
 
@@ -322,18 +353,18 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 以上で、監査記録の生成・保持・匿名化・再送の責務が明示される。
 
-### 4.5 MCP プロバイダのドメイン境界とツールライフサイクル
+#### 3.2.5 Provider のドメイン境界とツール実行ライフサイクル
 
 `MCP Router` は Workspace Session ごとにドメイン境界とツールの実行状態を管理し、プロジェクト外への逸脱および並列実行の競合を防ぐ責務を持つ。
 
-#### 4.5.1 Workspace Context Enforcement
+##### 3.2.5.1 Workspace Context Enforcement
 
 - `Workspace Session` は起動時に Canonical な `workspace_root` を決定し、`MCP Router` はすべてのツール呼び出しに対し `execution_context.workspace_root` を付与することを **MUST** とする。
 - `run_command` を含むあらゆるファイル操作・実行操作は、CWD を `workspace_root` に固定し、`..` を含む相対パスや、シンボリックリンクを介して別のリポジトリやルートディレクトリへ遡るパス、あるいは `PATH`/`LD_LIBRARY_PATH` といった環境で明示的に外部実行環境を指定する変更を **MUST** 禁止する。逸脱が検出された場合、`MCP Router` は即時 `deny` として `Audit Event` を生成し、エージェントには `workspace_scope_violation` を理由として通知することを **MUST** とする。
 - `FS` ドメイン（`apply_patch`/`read_file`など）のツールは `workspace_root` 内のノードのみを受け入れ、`canonical_path.starts_with(workspace_root)` が成立しない場合は `deny` とすることを **MUST** とする。
 - `Workspace Config` で許可された `workspace_env` 以外の環境変数追加・上書きは認めず、`run_command` へ渡す `env` は `App Host` が定義した最小限の `workspace_env` + システムデフォルトに限定することを **SHOULD** とする。`Audit Event` には `execution_context.workspace_env` を含め、どの構成から環境が注入されたかを記録することを **SHOULD** とする。
 
-#### 4.5.2 Tool Execution Queue and Lifecycle
+##### 3.2.5.2 Tool Execution Queue and Lifecycle
 
 - `MCP Router` は `ToolExecutionState` と呼ばれる構造体で各 `Workspace Session` の `tool_name`/`agent_id` ごとの状態を追跡し、同一セッションでの `run_command` の同時実行を防ぐことを **MUST** とする。`ToolExecutionState` には `state`（`Idle`/`Queued`/`Running`/`Completed`/`Failed`）、`agent_id`、`command_line`、`start_time`、`completion_time` を含める。
 - `run_command` が到達したとき、該当セッションに `Running` 状態が存在しない場合は即座に `state=Running` へ遷移する。既に `Running` が存在する場合は `ToolRequestQueue` へ FIFO で追加し、`state=Queued` の `Audit Event` を `result=queued` / `queue_reason=tool_busy` で生成することを **MUST** とする。
@@ -342,18 +373,18 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - セッション終了・シャットダウン・ツール失敗時には、残存する `Queued` エントリを `result=canceled` として `Audit Event` に記録し、該当するエージェントへ `deny` を返す。`ToolExecutionState` はセッション破棄時に初期化されることを **MUST** とする。
 - 上記の `ToolExecutionState` と `ToolRequestQueue` の変更はすべて `Audit Event`（`tool_state`/`queue_length`/`workspace_session_id`/`agent_id`）として記録し、`Shadow Buffer` や `Terminal` との整合性を保つようにすることを **SHOULD** とする。
 
-## 5. Configuration (設定管理) モジュール
+### 3.3 Configuration（設定管理）仕様
 
 設定は階層的にマージされ、常に最新の状態が各コンポーネントへリアクティブに反映される。各構成要素には優先順位と更新可否が定義されており、既存の `ConfigChangeEvent` を介して差分を伝播させる。
 
-### 5.1 Source hierarchy and merge priority
+#### 3.3.1 Source hierarchy と merge priority
 
 1. **環境変数 (Priority: 1)**: `NUE_AGENT_SAFETY_AUTO_ACCEPT=true` など。起動時に読み込まれるため、`App Host` は再評価のたびにこのスコープを最優先でマージする。
 2. **ワークスペース設定 (Priority: 2)**: `.nue/config.yaml`（プロジェクト固有）。ファイル更新を検知したタイミングで再読み込みする。
 3. **グローバル設定 (Priority: 3)**: `~/.config/nue/config.yaml`（ユーザーの基本設定）。同一ユーザーの複数ワークスペースにまたがる変更を検知する。
 4. **デフォルト (Priority: 4)**: システム内蔵の初期値。常に最後のフォールバックとして保持される。
 
-### 5.2 変更検知と再評価
+#### 3.3.2 変更検知と再評価
 
 `App Host` はグローバル設定とワークスペース設定のファイル変更をファイルシステムイベント（例: kqueue/inotify/ReadDirectoryChangesW）で監視し、変更完了から 5 秒以内に再評価サイクルを開始する。このサイクルで、`App Host` は対象ファイルを再パースし、既存の設定スキーマに対して構文・バリデーションチェックを行う。パースに失敗した場合は既存の設定を保持し、該当事象を `Audit Event`（`type=config.reload.failure`）として記録し、ユーザーへ修正を要求する通知を出す。
 
@@ -361,13 +392,13 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 環境変数の変更はプロセスの起動時に固定されるため、`App Host` はランタイム中に間接的な検知手段を持たない。したがって、環境変数ベースの設定を変更する場合、ユーザーは `App Host` を再起動しなければならず、`App Host` は再起動を伴う変更を要求するアラート（再起動後に `config_revision` を再生成）を表示することを **MUST** とする。
 
-### 5.3 伝播と適用制御
+#### 3.3.3 伝播と適用制御
 
 `Workspace Session` は自セッションに関係する `ConfigChangeEvent` を購読し、受信から 2 秒以内に適用を試行する。`ConfigChangeEvent` に含まれる各 `changed_key` にはメタデータとして `hot_reloadable`（`true`/`false`）が付与されており、`false` の場合は再起動なしには適用できない旨を示す。`Workspace Session` は `hot_reloadable=true` のキーについてのみ `Editor Core`・`MCP Router`・`Terminal Emulator` 等へ新値を反映し、`hot_reloadable=false` のキーは再起動が完了するまで旧値を保持してユーザーに通知する。通知には変更内容と再起動コマンド（例: `Restart App Host`）を含め、`App Host` が再起動済みであることを確認した後に `config_revision` を新しい値に合わせる。
 
 `Workspace Session` は `ConfigChangeEvent` に `hot_reload_scope` を含め、関連する UI/サービスを限定的に再初期化する。たとえば、`MCP Router` のポリシー定義変更は `hot_reload_scope=router` となり、当該スコープ内のコンポーネントにのみ更新通知を送る。
 
-#### 5.3.1 `hot_reload_scope` の許容値と依存順序
+##### 3.3.3.1 `hot_reload_scope` の許容値と依存順序
 
 `hot_reload_scope` は列挙値 (Enum) として次の値のみを許容し、その意味と再初期化の責務を明示することを **MUST** とする。これにより `ConfigChangeEvent` の処理側が依存関係を理解した上で一貫した再初期化を行う。
 
@@ -384,7 +415,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 `ConfigChangeEvent` に未知の `hot_reload_scope` が含まれていた場合、`Workspace Session` はその変更を再初期化不能 (`hot_reloadable=false`) と判断し、直ちにユーザーに再起動を要求する通知を出すことを **MUST** とする。加えて `App Host` は `Audit Event` (`type=config.reload.unknown_scope`, `unknown_scope=<value>`) を記録し、該当 `ConfigChangeEvent` を保持して再起動完了後に再評価する。
 
-### 5.4 フェールセーフと監査
+#### 3.3.4 フェールセーフと監査
 
 `App Host` はすべての再評価サイクルを `Audit Event`（`type=config.reload` 以上）として記録し、`Workspace Session` に配信した `config_revision` を含めて Legacy View の監査パネルから追跡できるようにする（Galaxy View への拡張は `specs/spec_galaxy_view.md` を参照）。設定の差分を適用できなかった場合（例: 検証エラー、`Workspace Session` が遅延したコンポーネント）、`App Host` は既存の設定を再登録し、該当した `ConfigChangeEvent` について `Audit Event` を `config.reload.failure` として二重記録し、ユーザーへ修正指示を送る.
 
@@ -392,7 +423,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 ---
 
-## 6. AI共創ワークフロー：The Nue Loop
+### 3.4 AI 共創ワークフロー詳細（The Nue Loop）
 
 1. **インテント入力**: ユーザーがUIから指示を出す。
 2. **エージェント起動**: UIがCodex等へタスクを丸投げ。
@@ -401,11 +432,11 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 5. **UI Feedback**: AIが編集しているファイルやモジュールは UI 上で強調され、状態に応じた光度やアニメーション（例: パルス）でユーザーへ進行中の変更を伝える。Galaxy/Nebula 表示の具体的な振る舞いは `specs/spec_galaxy_view.md` で定義する。
 6. **人間の承認**: ユーザーが差分を確認し、`Accept`。変更が本番バッファへマージされる。
 
-## 6.1 Command Hub と Intent/Smart Search
+#### 3.4.1 Command Hub の構造とインテント候補
 
 `Command Hub`（コマンドパレット）は、ユーザーが自然言語やショートカットを使って操作を起点とする中心UIであり、AIエージェントと人間が同じテンポで「意図」を共有するためのインターフェースである。
 
-### 6.1.1 Command Hubの構造
+##### 3.4.1.1 Command Hub の構造
 
 - `Command Hub` は `Cmd + Shift + P`（macOS）または `Ctrl + Shift + P`（その他）で呼び出すモーダルオーバーレイで、アクション候補と履歴を一覧表示することを **MUST** とする。
 - `Command Hub` は次の入力モードをサポートし、それぞれで優先的な候補生成を行うことを **MUST** とする。
@@ -420,7 +451,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 - 選択された候補は `MCP Router` へ `Intent Request` を送信し、`approval_state` に応じて自動的に処理されるので、`Command Hub` は `Audit Event` 経路を共有して `Shadow Buffer` との連携を疎通させることを **SHOULD** とする。
 
-#### インテント候補の Approval Unit
+##### 3.4.1.2 インテント候補の Approval Unit
 
 `nue-semantic` が自然言語入力から複数のファイル/ハンクを含む `Intent Request` を生成した場合、`Command Hub` はそれらを一つの **Atomic Intent**（用語集参照）として取り扱い、その集合を識別する `parent_intent_id` を付与することを **MUST** とする。Atomic Intent は「自然言語で表現された一連の変更提案を最小の実行可能なかたまり（論理最小単位）でまとめたもの」であり、`Command Hub` は候補一覧上で「5 箇所の変更」や「Rust ファイル 3 件」などの集約表現を提示しつつ、同一 `parent_intent_id` を共有する個別の `focus_id` を参照/展開できるようにすることを **SHOULD** とする。
 
@@ -430,7 +461,7 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 
 `Shadow Buffer` が `Accept` 以外の操作（`Reject`/`Partial Accept`/`Revert`）によって差分を変化させた場合も、変更済みの `focus_id` と `parent_intent_id` は引き続き `Audit Event` に記録し、`result=revert`/`result=reject` などで Operation の種類を明示することを **SHOULD** とする。これによって `Command Hub` の候補リストと `Audit Event` の監査パネルが同一の `Atomic Intent` を軸に同期し、単一の自然言語入力に対する承認状態・差分一覧・再試行履歴を一貫して追跡できるようにすることを **MUST** とする。
 
-### 6.1.2 Intent/Smart Search のコンポーネント
+#### 3.4.2 Intent/Smart Search コンポーネント
 
 - Intent/Smart Search は **`nue-semantic`** というローカル生成AIエンジンを中心とし、Phi やその他の Small Machine Learning（SML）モデルをバインドして動作することを **MUST** とする。外部APIは基本的に利用せず、オフライン環境でも動作する必要がある。
 - `nue-semantic` は次のサブシステムを組み合わせて候補を生成することを **MUST** とする。
@@ -442,7 +473,7 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 - `Local RAG` に使うインデックスはファイルシステムの変更（追加/削除/リネーム）を検知した後 5 秒以内に部分更新し、入力ミスや類似語を許容するキーワードマッチを備えることを **SHOULD** とする。
 - `nue-semantic` が内部リソースで解決できないと判断した場合、`Command Hub` は「この意図は現行リソースで解決できない」旨を明示し、ユーザーが `Terminal` などの `run_command` 経由で外部エージェント（例: 高性能クラウドAI）を呼び出すためのサンプルコマンドや必要な入力情報をガイドすることを **SHOULD** とする。`Command Hub`/`MCP Router` は `external_agent_profile` の一覧や `requires_user_consent` の承認ループを保持せず、外部エージェントへの問い合わせはあくまでユーザーが手動で行う運用とすることで Q15 を解決し、Nue 本体は `Audit Event` の `approval_state` に `requires_user_consent` を記録しないようにする。
 
-### 6.1.3 `nue-semantic` のインスタンスとワークスペース分離
+##### 3.4.2.1 `nue-semantic` のインスタンスとワークスペース分離
 
 `nue-semantic` は 450MB 以上に及ぶモデル本体を含むため、`App Host` はアプリ全体で **ただ一つのインスタンス** を起動し、すべての `Workspace Session` がこの共有インスタンスを参照することを **MUST** とする。複数のインスタンスを同一プロセス内で生成しようとする試みはリソース制限違反として拒否され、その事象は `Audit Event` (`type=semantic.instance_violation`) に記録することを **SHOULD** とする。
 
@@ -456,9 +487,9 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 
 以上により `Command Hub` が意図を中心とした起点となり、AIエージェントと人間が共に進化するループの起点として機能する。
 
-## 6.2 グローバル検索とセマンティック検索統合
+#### 3.4.3 グローバル検索とセマンティック検索統合
 
-### 6.2.1 グローバル検索
+##### 3.4.3.1 グローバル検索
 
 `Global Search` パネルは `Cmd + Shift + F` / `Ctrl + Shift + F` で呼び出されるオーバーレイとし、`Legacy View` の検索バーや `Command Hub` の `Navigation Mode`（`:` プレフィックス）からも遷移できるようにすることを **MUST** とする。ファイル内検索（`Cmd + F` / `Ctrl + F`）からの切り替えでは、現在のクエリ・正規表現/大文字小文字/単語単位のスイッチ・一時的な範囲（選択テキスト）を保持し、ユーザーが同じキーワードを再入力することなくワークスペース全体へスケールアップできるようにすることを **MUST** とする。
 
@@ -480,13 +511,13 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 
 `Global Search` は結果をストリーミング表示し、ファイル構造の更新・差分生成に伴って真新しい一致が発見された際には「再計算中」ラベルを出しつつ直前の一覧を保持することを **SHOULD** とする。検索処理が重くなる場合はパネル上に処理済ファイル数/残件数の進捗を表示し、必要に応じてユーザーが計算をキャンセルしたり新たなフィルターを適用したりできるようにすることを **SHOULD** とする。
 
-### 6.2.2 セマンティック検索統合
+##### 3.4.3.2 セマンティック検索統合
 
 `Semantic Search` は `Global Search` の結果リストと同一 UI に統合され、`Command Hub` の自然言語モード（プレフィックスなし）で入力された意図を `nue-semantic` の `Intent Resolver` へ渡すことで意味ベースのマッチを生成することを **MUST** とする。`Local RAG` のベクトルインデックスはファイル名・関数名・コメント・設定名などの要素を保持し、`semantic_score` を計算して `Global Search` の一覧内に `Semantic Match` バッジとスコアを表示することを **SHOULD** とする。
 
 `Semantic Search` の結果は目的語の意味的関連性を優先し、高スコアファイルは `Neon Cyan` のハイライトと専用 `Glyph` で表示することを **SHOULD** とする。これらの結果は `Smart Gutter`・`Structure Path` にも反映し、該当する行にハイライトを付与すると同時に `Command Hub` に `Relevance Intent` を起票して `Intent Request` へ連携できることを **MUST** とする。
 
-#### Relevance Intent の構造と連携
+###### 3.4.3.2.1 Relevance Intent の構造と連携
 `Relevance Intent` は `nue-semantic` の `Semantic Search` が生成する意図トークンであり、`Command Hub` に渡された際に以下の情報を **MUST** で保持する。
 
 - `semantic_score`: 候補の意味的一致度（0.0〜1.0）で、UI はスコアが高いものを優先表示し、`Audit Event` にも保存して後からの分析に利用する。
@@ -503,11 +534,11 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 
 上記により `Global Search` は文字列一致をベースとするクラシックな検索と、`Semantic Search` による意味的ハイライトを同一のループで扱い、`Command Hub` が意図 → 検索 → 承認の流れを一貫して担保することを **MUST** とする。
 
-## 7. ワークスペース継続性とリソース管理
+### 3.5 ワークスペース継続性とリソース管理
 
 `App Host` は複数のワークスペースを高速に切り替えながら、必要なときにリソースを解放することで全体メモリの圧縮とユーザー操作の継続性を両立させる責務を持つ。これを実現するために、各 `Workspace Session` について**セッションスナップショット**（`SessionSnapshot`）を整備し、スリープ/再開のトリガーやレイアウト復元を統制することを **MUST** とする。
 
-### 7.1 セッションスナップショットとレイアウト復元
+#### 3.5.1 セッションスナップショットとレイアウト復元
 
 `SessionSnapshot` は `Workspace Session` の現在状態を表す構造体であり、以下の項目を最低限含めることを **MUST** とする。
 
@@ -525,16 +556,16 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 
 スナップショットは `~/.config/nue/sleep/session_snapshots/<workspace_id>/<snapshot_id>.json` など恒久的なストレージへ原子書き込みされ、`sleep.snapshot.max_per_workspace`（デフォルト `3`）を超えると最も古いスナップショットを削除して `Audit Event`（`type=sleep.snapshot.prune`）を発行することを **MUST** とする。 `SessionSnapshot` は `App Host` が保持する `Workspace Rail` の表示や将来的なタブ/レイアウト復元機構のベースとなり、Tab/レイアウト管理の最終仕様は本スナップショットの拡張を通じて実現することを **SHOULD** とする。
 
-### 7.2 Sleep モードと復元フロー
+#### 3.5.2 Sleep モード遷移と復元フロー
 
-#### トリガー
+##### トリガー
 
 `Workspace Session` は次のいずれかの条件を満たすと `Sleep Mode` に移行することを **MUST** とする。
 
 - `workspace.sleep.timeout_seconds`（デフォルト 600 秒）以上、各種 UI/入力・エージェント操作がない状態が続いた。
 - `Workspace Rail` 上の対象アイコンを右クリックした `Sleep Workspace` コマンド、もしくは `Command Hub` からの `Sleep` 操作が明示的に発行された。
 
-#### Sleep への移行
+##### Sleep への移行
 
 1. `App Host` は移行前に `SessionSnapshot` を更新し、`snapshot_id` をロックする。
 2. `SessionSnapshot` をストレージへ書き出し、`Audit Event`（`type=sleep.enter`, `workspace_session_id`, `snapshot_id`, `trigger`）を生成することを **MUST** とする。
@@ -546,7 +577,7 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 
    Aggregator の状態は `App Host` の Sleep ステータスに紐づき、複数セッションで共有されないことを **MUST** とする。再開後の適用に失敗した場合は、`Audit Event`（`type=config.reload.sleep.failure` / `reason=invalid_path` など）とともに Notification System で `Cyber Magenta` バナーを表示し、どの設定キーが適用できなかったのかを明示してユーザーが対処できるようにすることを **MUST** とする。
 
-#### 復元
+##### 復元
 
 1. ユーザーが対象ワークスペースを再アクティブにすると `App Host` は最新の `SessionSnapshot` を読み込み、`Audit Event`（`type=sleep.resume`, `snapshot_id`）を生成することを **MUST** とする。
 2. `Workspace Session` を再生成し、`workspace_session_id` を再利用した上で `MCP Router`・`Editor Core`・`Terminal Emulator`・`nue-semantic` を再起動する。`ToolExecutionState`/`ToolRequestQueue` はスナップショットと整合するようにキュー状態を再構築し、`Approval Request` は `Shadow Buffer` 内の `related_event_id` に戻す。
@@ -562,22 +593,22 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 
 上記を満たすことで、`Sleep Mode` は `Workspace Session` の `Cursor`/`承認状態`/`Audit Event` 関連の整合性を維持しつつ、未使用のワークスペースを積極的に休止させるしくみとして機能する。
 
-## 8. 未解決の設計課題と ToDo
+### 3.6 未解決課題 / ToDo
 
 本仕様では、`specs/backlog.md` に ToDo 形式で追跡している項目を逐次列挙し、Sec.4.2.1 で言及した `Reject`/`Partial Accept`/`Revert` のような拡張を忘れないように管理することを **MUST** とする。
 
-### 8.1 Shadow Buffer の拡張承認フロー
+#### 3.6.1 承認フロー拡張
 
 `Shadow Buffer` の `Reject`/`Partial Accept`/`Revert` に関して、承認単位（ハンク/行/ファイル/セッション）の組み合わせ、`Audit Event` に含めるフィールド、UI での差分再表示・再承認の制御を未定義のままにしないことを **MUST** とする。詳細は `specs/ask.md` の Q19 に追跡しており、該当項目が具体化するまでは本仕様の該当節を再レビューして不足がないか確認することを **SHOULD** とする。
 
-### 8.2 追加 UI 表示装置（Minimap / Smart Gutter / Structure Path）
+#### 3.6.2 補助 UI 強化
 
 Minimap や Smart Gutter、Structure Path のような新規ビューは、`Shadow Buffer` や差分データ、`Agent Status` との整合性を明示しないまま構築を進めてはならない。これらの仕様は `specs/backlog.md` の該当 ToDo（`Minimap` / `Smart Gutter` / `Structure Path`）に目標と依存関係を残し、実装検討時に再度 `Command Hub`/`Legacy View` とのデータ連携を文書化することを **SHOULD** とする。
 
-### 8.3 検索・セッション・リソース管理機能
+#### 3.6.3 検索 / セッション / リソース管理の未完項目
 
 Global Search、Semantic Search Integration、タブ・レイアウト管理、Sleep 機能、`nue-semantic` のシングルトン運用など、ワークスペースや AI リソースに関わる機能要望は `specs/backlog.md` の該当 ToDo に記録しておき、仕様化に着手する際は `App Host`/`Workspace Session` の構成と整合する形で取り込む必要がある。これらの項目は `nue-semantic` の応答性や `App Host` のメモリ制御戦略に影響するため、再設計時には関連する `ConfigChangeEvent` の `hot_reload_scope` と整合性を取ることを **SHOULD** とする。
 
-### 8.4 外部エージェント連携とフォント周りの未解決
+#### 3.6.4 外部エージェント連携 / フォント周りの未解決
 
 外部エージェントへの問い合わせ先のプロファイルや管理フローについては `specs/ask.md` Q15 で確認中であり、承認制御や `Audit Event` 連携の仕様が固まるまでは `nue-semantic` による提案を自動化しない運用を **MUST** とする。また、JetBrains Mono と日本語/特殊記号フォントの混在に関する要件は Q20 で再確認する予定で、`FontContext` のフォールバック順序に変更が生じた場合は Sec.3.4 の記述を即座に更新することを **SHOULD** とする。
