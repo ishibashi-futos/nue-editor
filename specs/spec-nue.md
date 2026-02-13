@@ -300,6 +300,8 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
   - プレフィックスなし（Intent / Smart Search）: 自然言語（英語）で意図を入力し、`nue-semantic` による候補推論を得る。例: `test database connection` や `document API changes`。
 - モードはリアルタイムに切り替わり、入力中のテキストに応じて候補リストを 16ms 以内に更新することを **SHOULD** とする。
 - 16ms 以上の遅延が発生した場合、`Command Hub` は直前に表示していた候補を維持しつつ `Backoff` 状態を表示することを **MUST** とし、この状態では `nue-semantic` による再スコアリングが継続される旨とともに `Action Mode`/`Navigation Mode` への移行案を明示し、再評価完了後に最新候補が置換されるようにする。
+- `Backoff` 状態では、候補一覧に `Re-scoring…` もしくは `awaiting nue-semantic` などの明示的なラベルを付与し、最後に生成された候補と所要時間・進捗を表示することで遅延の因果をユーザーへ伝えることを **SHOULD** とする。
+- 同時に、`Command Hub` は `Action Mode` か `Navigation Mode` への移行手順（例: `>` でアクションを記述、`:` で候補を絞る）をヒントとして表示し、遅延が長引く場合はユーザーが明示的なコマンド入力へフォーカスを移せるよう案内することを **SHOULD** とする。
 - 各候補には発行元（AIエージェント/ユーザー）、必要な `MCP Tool`、`Approval State`（`auto_allow`/`requires_user_consent`/`blocked`）を付与し、選択時に即座に `Audit Event` を作成することを **SHOULD** とする。
 - 選択された候補は `MCP Router` へ `Intent Request` を送信し、`approval_state` に応じて自動的に処理されるので、`Command Hub` は `Audit Event` 経路を共有して `Shadow Buffer` との連携を疎通させることを **SHOULD** とする。
 

@@ -38,6 +38,10 @@
   - Before: カラーパレット、エージェント状態・差分表現ともに未定義で、アクセシビリティや承認結果の視覚化方針が明確でなかった。
   - After: `spec-nue.md` Sec.3.1.1/3.1.2 に WCAG AA 準拠のパレット（Deep Abyss ～ Dusty Grey）と `Agent Status` の状態別エフェクト、差分/承認インジケーターの色規約を RFC 2119 スタイルで記載し、`nue-ui` GPUI への反映を要求した。
 
+- [x] P1: Command Hubの候補更新遅延と外部エージェント提案の挙動
+  - Before: 16ms を超える候補更新遅延時の UI 表示と `Action/Navigation Mode` への案内、`nue-semantic` の遅延中の再スコアリング状態、外部エージェント提案の制御ポリシーが未定義であった。
+  - After: `spec-nue.md` Sec.6.1.1 で `Backoff` 状態が遅延中の候補を保持し進捗ラベルを表示すること、`Action Mode`/`Navigation Mode` への移行ヒントを明示し、`nue-semantic` の再スコアリング中も UI が状態を伝えることを RFC 2119 で定義した。Sec.6.1.1-6.1.2 では外部エージェント提案を `requires_user_consent` + `Audit Event` で限定プロファイル（例: `external_agent_profile=cloud_lambda_v2`）のみに許可し、候補が存在しない場合に「現在のコンテキストでは解決不能」レスポンスを返すと記述した。
+
 ## ToDo
 
 - [ ] P1: 使用可能フォントの具体化と埋め込み
@@ -47,10 +51,6 @@
     - メタ情報 / コメント,JetBrainsMono-Italic.ttf,コメントやMuted Textの区別。
   - UIの初期化プロセス内で埋め込んだバイナリを `FontContext` に登録
 
-
-- [ ] P1: Command Hubの候補更新遅延と外部エージェント提案の挙動
-  - 16ms を超える候補更新遅延時の UI 表示と `Action/Navigation Mode` への案内、`nue-semantic` の遅延中の再スコアリング状態を明記する。
-  - `nue-semantic` が内部リソースで解決できない場合の外部エージェント提案の制御ポリシーと、提案先プロファイルの限定：`requires_user_consent` の `Audit Event` で構成を明記。この提案を最後の手段とし、候補がない場合は「現在のコンテキストで解決不能」を UI に返す。
 
 - [ ] P1: `Shadow Buffer` の承認モデルを定義する
   - Before: `Accept` 以外（Reject/Revert/Partial Accept）が未定義で、運用手順が確立できない。
