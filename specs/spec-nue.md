@@ -402,6 +402,36 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 以上により `Command Hub` が意図を中心とした起点となり、AIエージェントと人間が共に進化するループの起点として機能する。
 
+## 6.2 グローバル検索とセマンティック検索統合
+
+### 6.2.1 グローバル検索
+
+`Global Search` パネルは `Cmd + Shift + F` / `Ctrl + Shift + F` で呼び出されるオーバーレイとし、`Legacy View` の検索バーや `Command Hub` の `Navigation Mode`（`:` プレフィックス）からも遷移できるようにすることを **MUST** とする。ファイル内検索（`Cmd + F` / `Ctrl + F`）からの切り替えでは、現在のクエリ・正規表現/大文字小文字/単語単位のスイッチ・一時的な範囲（選択テキスト）を保持し、ユーザーが同じキーワードを再入力することなくワークスペース全体へスケールアップできるようにすることを **MUST** とする。
+
+パネルは一致したファイルパス・行番号・スニペットを一覧表示し、`Shadow Buffer` の差分エントリか永続ファイルかを示すバッジと、`Audit Event` に必要な `workspace_session_id`/`agent_id` を含めたメタ情報のハイライトを付与することを **SHOULD** とする。結果の選択時には対象ファイルを `Editor Core` で開き、`Structure Path`/`Minimap`/`Smart Gutter` に該当行をハイライトしつつ検索語をフォーカスすることを **MUST** とする。
+
+パネルには常時次のスコープ/フィルターを提供し、ユーザーが必要に応じて範囲を括る/広げる操作を行えるようにすることを **SHOULD** とする。
+
+- `workspace_root`（デフォルト）
+- 開いているバッファ・タブのみ
+- 特定ディレクトリ（例: `src/`, `crates/`）や拡張子（例: `.rs`, `.md`）
+- `workspace.search.exclude` / `.gitignore` に基づくディレクトリ（`node_modules`, `target`, `.venv`, `.cache`）の除外
+- 検索対象を `Shadow Buffer` の差分に限定
+
+`workspace.search.exclude` はデフォルトで除外対象に含めるディレクトリ群を定義し、ユーザーが「隠しディレクトリ/外部依存を含む」トグルで一時的にオーバーライドできるようにすることを **SHOULD** とする。スコープの変更は `Audit Event` (`type=search.scope_change`) に記録され、`App Host` が `workspace_session_id` ごとに追跡できるようにすることを **SHOULD** とする。
+
+`Global Search` は結果をストリーミング表示し、ファイル構造の更新・差分生成に伴って真新しい一致が発見された際には「再計算中」ラベルを出しつつ直前の一覧を保持することを **SHOULD** とする。検索処理が重くなる場合はパネル上に処理済ファイル数/残件数の進捗を表示し、必要に応じてユーザーが計算をキャンセルしたり新たなフィルターを適用したりできるようにすることを **SHOULD** とする。
+
+### 6.2.2 セマンティック検索統合
+
+`Semantic Search` は `Global Search` の結果リストと同一 UI に統合され、`Command Hub` の自然言語モード（プレフィックスなし）で入力された意図を `nue-semantic` の `Intent Resolver` へ渡すことで意味ベースのマッチを生成することを **MUST** とする。`Local RAG` のベクトルインデックスはファイル名・関数名・コメント・設定名などの要素を保持し、`semantic_score` を計算して `Global Search` の一覧内に `Semantic Match` バッジとスコアを表示することを **SHOULD** とする。
+
+`Semantic Search` の結果は目的語の意味的関連性を優先し、高スコアファイルは `Neon Cyan` のハイライトと専用 `Glyph` で表示することを **SHOULD** とする。これらの結果は `Smart Gutter`・`Structure Path` にも反映し、該当する行にハイライトを付与すると同時に `Command Hub` に `Relevance Intent` を起票して `Intent Request` へ連携できることを **MUST** とする。
+
+`Semantic Search` の再評価は `Local RAG` の 5 秒ルール（ファイルシステムイベントからの部分更新）に従って実行し、再スコアリングの進行中は `Global Search` パネルに `Re-scoring…` ラベルを表示して直前の結果を保持することを **MUST** とする。`nue-semantic` が意味的解決に至らない場合は `Command Hub` で外部エージェント提案を `requires_user_consent` で行い、結果が存在しなければ「この意図は現行コンテキストで解決不能」と表示することを **SHOULD** とする。
+
+上記により `Global Search` は文字列一致をベースとするクラシックな検索と、`Semantic Search` による意味的ハイライトを同一のループで扱い、`Command Hub` が意図 → 検索 → 承認の流れを一貫して担保することを **MUST** とする。
+
 ## 8. 未解決の設計課題と ToDo
 
 本仕様では、`specs/backlog.md` に ToDo 形式で追跡している項目を逐次列挙し、Sec.4.2.1 で言及した `Reject`/`Partial Accept`/`Revert` のような拡張を忘れないように管理することを **MUST** とする。

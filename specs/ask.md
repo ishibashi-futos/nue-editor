@@ -111,3 +111,9 @@
     - 2,Smart Gutter,不透明度 1.0（アクティブ行）。,どの行を承認/却下するかの判断材料。
     - 3,Editor Decoration,ゴーストテキスト、インラインDiff。,書き換え内容そのもの。
     - 4,Minimap,不透明度 0.6~0.8（フローティング）。,ファイル全体の鳥瞰図であり、背景に近い。
+
+- [ ] Q23. `Global Search` のフィルター切り替え（`workspace.search.exclude` を含む範囲/ディレクトリ選択）は在来の検索設定（グローバル/ワークスペース）とどのように同期すべきか、またこの状態を永続化する必要があるか未定義です。切り替えの範囲や持続性をどこで管理すべきか教えてください。 (`spec-nue.md` Sec.6.2.1)
+  - Answer: 未回答
+
+- [ ] Q24. `Semantic Match` 結果のうち `Command Hub` へ送る `Relevance Intent` の定義と構造（`Approval State` との組み合わせや `Audit Event` への記録フィールド）が未定義です。この `Relevance Intent` をどこで生成し、どのように `Intent Request` にマッピングすべきか教えてください。 (`spec-nue.md` Sec.6.2.2)
+  - Answer: 未回答

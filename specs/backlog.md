@@ -54,6 +54,14 @@
   - Before: `Accept` 以外（Reject/Revert/Partial Accept）が未定義で、運用手順が確立できない。
   - After: `spec-nue.md` Sec.4.2.1/4.2.2 で `Shadow Buffer` が提供すべき `Accept`/`Reject`/`Partial Accept`/`Revert` の承認操作、それぞれの `Approval Unit`・`Audit Event` フィールド・Editor/UI との整合ルールを RFC 2119 形式で定義し、差分の分割・拒否・逆方向承認の更新手順と通知要件を固めた。
 
+- [x] P1: Global search / Navigation integration
+  - Before: 全ワークスペース横断検索と Legacy/Command Hub からの遷移ルート、`Shadow Buffer` との同期が未定義だった。
+  - After: `spec-nue.md` Sec.6.2.1 で Global Search パネルの呼び出し経路、フィルター/スコープ、検索結果の Legacy View/Smart Gutter/Structure Path との同期、`Audit Event` 記録要件を RFC 2119 で規定した。
+
+- [x] P1: Semantic Search Integration
+  - Before: 意味ベース検索の表示・スコアリング、`Command Hub` との連携、`Local RAG` インデックス更新、外部エージェント提案の制御が曖昧だった。
+  - After: `spec-nue.md` Sec.6.2.2 で Semantic Search を Global Search UI と Command Hub に統合する流れ、`semantic_score` 表示、Smart Gutter/Structure Path/Command Hub へ `Relevance Intent` を伝播するルール、`Local RAG` の 5 秒更新と再スコアリング中ラベル、`requires_user_consent` の外部エージェント提案について RFC 2119 で規定した。
+
 - [x] P1: 使用可能フォントの具体化と埋め込み
   - Before: UI で利用する等幅フォント・強調フォント・メタフォントやそれらの埋め込み手順が未定義で、マルチプラットフォームでの字形の一貫性が確保できなかった。
   - After: `spec-nue.md` Sec.3.4 に JetBrainsMono ファミリ（Regular/Bold/Italic）の用途割当を RFC 2119 で定義し、`nue-ui` の `FontContext` へのバイナリ埋め込み・初期化順序・フォールバック・オーバーライド要件を明記した。
@@ -71,14 +79,6 @@
 
 
 ## ToDo
-
-
-- [ ] P1: Global search
-  - 複数ファイルに跨った検索
-  - ファイル内検索からGlobal search検索メニューへの移行ができると便利
-
-- [ ] P1: Semantic Search Integration
-  - 単なる文字列一致ではなく「authentication logic」といった意味ベースの検索結果を グローバル検索メニューのファイルリスト上にハイライトする
 
 - [ ] P1: タブ・レイアウト管理
   - ワークスペースを切り替えた際、それぞれのタブの開き具合やスクロール位置などを完全に復元する「セッション・スナップショット」。
