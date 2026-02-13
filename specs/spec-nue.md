@@ -504,14 +504,20 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 2. `SessionSnapshot` をストレージへ書き出し、`Audit Event`（`type=sleep.enter`, `workspace_session_id`, `snapshot_id`, `trigger`）を生成することを **MUST** とする。
 3. `Workspace Session` は `MCP Router`、`Editor Core`、`Terminal Emulator`、`nue-semantic` などの実稼働コンポーネントを停止し、`ToolExecutionState`/`ToolRequestQueue` を `Paused` 状態に移行させる。`MCP Router` は `run_command` を拒否し、差分の生成を停止することを **MUST** とする。
 4. `App Host` は当該 `Workspace Session` を `State=Sleep` としてマークし、`Workspace Rail` 上に Sleep バッジ（`Sleeping`）を表示する。睡眠中の `Command Hub` は `Away` バックドロップを表示し、`Audit Event` への `state=sleeping` 属性を持たせることを **SHOULD** とする。
-5. Sleep 中は当該セッションに対する `ConfigChangeEvent` の配信は保留され（`hot_reload_scope` だけでなく `config_revision` も更新を保留）、復帰時にまとめて適用することを **SHOULD** とする。
+5. Sleep 中は当該セッションに対する `ConfigChangeEvent` の配信を保留し、`hot_reload_scope` ごとにまとめて再適用することを **SHOULD** とする。このとき `App Host` は `Sleep Config Change Aggregator` を維持し、各 `hot_reload_scope` について `config_revision` が最大となる最新の値を保持しつつ、変更されたキーの和集合・最終値・`hot_reloadable` フラグを上書き（Last Write Wins）マージすることを **MUST** とする。
 
-   Sleep モード中に蓄積された `ConfigChangeEvent` をどのようにキューイング/上書き/破棄するか、復帰後の適用順序や失敗時の再送をどう扱うかは現在 **未定義** のため、`specs/ask.md` Q26 で検討している。回答が得られ次第、本節を補完する。
+   Aggregator は `hot_reload_scope` の数に限定されたエントリを持ち、すべての変更が `LWW (Last Write Wins)` セマンティクスで退避されるため、明示的なキュー長の上限を設ける必要がない。各イベント到着時には改めて `config_revision` を比較し、同一キーについては最新の値で置き換えて `changed_keys` を更新し、`source`/`timestamp`/`config_path` など監査に必要なメタデータも併せて保持することを **SHOULD** とする。`hot_reloadable=false` の変更が含まれる場合は、Aggregator がそのスコープを「再起動要求」状態としてマークし、Wake up 時に `Audit Event`（`type=config.reload.sleep.apply`, `scope`, `config_revision`）でその事実を伝えるようにすることを **SHOULD** とする。
+
+   Aggregator の状態は `App Host` の Sleep ステータスに紐づき、複数セッションで共有されないことを **MUST** とする。再開後の適用に失敗した場合は、`Audit Event`（`type=config.reload.sleep.failure` / `reason=invalid_path` など）とともに Notification System で `Cyber Magenta` バナーを表示し、どの設定キーが適用できなかったのかを明示してユーザーが対処できるようにすることを **MUST** とする。
 
 #### 復元
 
 1. ユーザーが対象ワークスペースを再アクティブにすると `App Host` は最新の `SessionSnapshot` を読み込み、`Audit Event`（`type=sleep.resume`, `snapshot_id`）を生成することを **MUST** とする。
 2. `Workspace Session` を再生成し、`workspace_session_id` を再利用した上で `MCP Router`・`Editor Core`・`Terminal Emulator`・`nue-semantic` を再起動する。`ToolExecutionState`/`ToolRequestQueue` はスナップショットと整合するようにキュー状態を再構築し、`Approval Request` は `Shadow Buffer` 内の `related_event_id` に戻す。 
+
+   再起動後、`App Host` は Sleep 中に蓄積した `Sleep Config Change Aggregator` をフラッシュし、`Dependency-Aware Re-init Sequence`（`app`→`router`→`terminal`→`editor`→`semantic`→`agent`）の順で永続化済みのスコープを再適用することを **MUST** とする。各スコープについては、Aggregator の `changed_keys` の和集合と最終値をそのまま `ConfigChangeEvent` として再構成し、元の `config_revision` も含めて `Workspace Session` に配信することを **MUST** とする。適用成功時には `Audit Event`（`type=config.reload.sleep.apply` / `scope` / `config_revision`）を記録し、失敗時には前述の `Audit Event` と `Cyber Magenta` バナーでユーザーへ通知することを **MUST** とする。
+
+   再適用後、Aggregator の状態はクリアされ、復帰完了まで同じ Sleep セッションに再利用しないことを **SHOULD** とする。復帰処理の最後で `Command Hub` が `Approval Requests` を再表示する前にすべての設定差分が確実に反映されていることを確認することを **SHOULD** とする。
 3. 開いていたタブは `SessionSnapshot` に従って順番・スプリット構成・カーソル位置・ビューポートを復元し、`Minimap`/`Structure Path`/`Smart Gutter` にも `focus_id` を通知する。復元完了後、`Command Hub` は自動で `Approval Requests` を再表示することを **SHOULD** とする。
 4. `App Host` は Sleep 復元後、直前の `SessionSnapshot` と異なる `cursor`/`focus` 状態を `focus_discrepancy` として `Audit Event`（`type=sleep.focus-discrepancy`）に記録し、ユーザーへ差分があることを通知することを **SHOULD** とする。
 5. 復元時に未処理差分がある `Shadow Buffer` については `Command Hub` が `Solar Flare` を点滅させて `Approval Request` を強調し、sleep 解除直後でも承認が継続できる状態とする。 
