@@ -56,6 +56,8 @@
 - [x] Q14. `nue-semantic` が内部リソースで解決できない場合の外部エージェント提案の制御ポリシーは？
   - Answer: 外部エージェント提案は最終手段とし、`requires_user_consent` + `Audit Event` でプロファイル（例: `external_agent_profile=cloud_lambda_v2`）を限定する。提案先がない場合は「解決不能」メッセージを返す。 (`spec-nue.md` Sec.6.1.2)
 
+- [x] Q15. 外部エージェント（例: `cloud_lambda_v2`）への問い合わせを `requires_user_consent` かつ `Audit Event` でのみ提案する場合、どのようなプロファイル名/リソースを許可し、誰がその一覧を管理するのか未定義です。提案可能な外部エージェントの最小限の分類や管理者承認フローを決める必要があります。 (`spec-nue.md` Sec.6.1.2)
+  - Answer: 初期リリースでは `Command Hub` から外部エージェントを自律的に呼び出さず、`nue-semantic` が回避不能と判断した際は `Terminal` の `run_command` 等でユーザー自身がエージェントへの問い合わせを行うようガイドする。`external_agent_profile` 一覧や `requires_user_consent` 承認は保持せず、監査は `approval_state` に `requires_user_consent` を記録しない運用とする。詳細は `specs/spec-nue.md` Sec.6.1.2 に追加。
 - [x] Q16. `ConfigChangeEvent` の `hot_reload_scope` は複数のコンポーネント（例: `router`/`terminal`/`agent`）を含む可能性がありますが、許容される列挙値と、複数 scope を含む変更時の再初期化順序や優先度が未定義です。`hot_reload_scope` の命名規則と、未定義の scope を受け取った場合のフェールセーフ動作を決め、その後の `Workspace Session`/`UI View` の再構成ルールを明確にする必要があります。 (`spec-nue.md` Sec.5.3)
   - Answer: Sec.5.3.1 に `hot_reload_scope` の許容値と、「Dependency-Aware Re-init Sequence」（`app`→`router`→`terminal`→`editor`→`semantic`→`agent`）、未知 scope を `hot_reloadable=false` 扱いで再起動要求し `Audit Event` に `config.reload.unknown_scope` を記録する仕様を追加した。
 
@@ -79,12 +81,7 @@
 - [x] Q17. `Agent Status` や差分/承認の可視化 (`spec-nue.md` Sec.3.1.2) が現在は色とアニメーション（例: `Solar Flare` の点滅、`Cyber Magenta` の明滅）に依存しており、色覚多様性・ハイコントラストモード時の識別方法が未定義です。色以外のパターンや形状、テキストを併用する必要がありますか？
   - Answer: 本アプリは個人利用を前提としており、アクセシビリティ対応を仕様の主要スコープには含めません。必要なときに過去の検討結果を参照できるよう、色/シンボル/差分マーカーの候補は `specs/spec_accessibility.md` に暫定的な記録として移しました。
 
-## Open
-
-- [ ] Q15. 外部エージェント（例: `cloud_lambda_v2`）への問い合わせを `requires_user_consent` かつ `Audit Event` でのみ提案する場合、どのようなプロファイル名/リソースを許可し、誰がその一覧を管理するのか未定義です。提案可能な外部エージェントの最小限の分類や管理者承認フローを決める必要があります。 (`spec-nue.md` Sec.6.1.2)
-  - Answer: 外部エージェントへの問い合わせはNue経由では行わない。あくまで、Nueのターミナルを経由して指示はユーザーが直接エージェントに出す。
-
-- [ ] Q18. `Galaxy View` が 500 ノード超で詳細度を下げる際、どのノード/エッジを折りたたみ・簡略化するかや、ユーザーのフォーカスをどう扱うか、具体的なヒューリスティックや操作仕様が未定義です。表示維持/削減の基準、あるいは手動制御の可否を決める必要があります。 (`spec-nue.md` Sec.3.3)
+- [x] Q18. `Galaxy View` が 500 ノード超で詳細度を下げる際、どのノード/エッジを折りたたみ・簡略化するかや、ユーザーのフォーカスをどう扱うか、具体的なヒューリスティックや操作仕様が未定義です。表示維持/削減の基準、あるいは手動制御の可否を決める必要があります。 (`spec-nue.md` Sec.3.3)
   - Answer: ユーザーの「現在の関心事」を軸に、表示対象を自動的に選別して欲しい。
     - 各ノードに対して以下のスコアを算出し、スコアの高い順に描画を維持します。
       - P0: Active,AI Activity,現在エージェントが編集中のファイル（彗星）およびその直近の依存先。
@@ -97,24 +94,16 @@
       - インクリメンタル・レイアウト: 全ノードの物理シミュレーションを毎フレーム行うのではなく、フォーカス周辺のノードのみを計算対象とし、遠方のノードは座標を固定（フリーズ）します。
       - GPUインスタンシング: 同一形状のノード（星）やエッジ（光の線）はGPUIのインスタンス描画を利用し、描画コール数を最小限に抑えます。
 
-
-- [ ] Q20. `spec-nue.md` Sec.3.4 で JetBrainsMono ファミリの Bold/Italic を埋め込むことを決めたが、日本語・絵文字・右起動の記号などをカバーするフォントはどのように提供するか明確ではない。`FontContext` の `fallback_fonts` や追加バンドルによってどこまでカバーすべきか、OS フォント依存でも許容されるのかを決定してください。
-  - Answer: 多言語（日本語）や特殊記号をどう扱うか、フォントフォールバックする。
-    - UI（メニュー・サイドバーなど）: そもそも日本語を許容しない。UIは英語のみで構成し、`JetBrainsMono` を採用する
-    - Editor（コード領域）: Menlo, Monaco, Courier NewなどのOS標準の等幅フォントを使用する
-    - JetBrains Monoと日本語を混ぜた時に「日本語だけ浮いて見える」現象を防ぐため、JetBrains Monoに対して日本語を少し小さく、かつベースラインを下げる補正を入れる
-
-- [ ] Q21. `Nebula` が複数ノードをまとめる挙動（Sec.3.3.1）はスコアベースだが、ユーザーが Nebula を展開・縮小したり、集約されたノードをフォーカス/ジェスチャーで追跡したりする操作仕様が定義されていない。自動選別のみで問題ないのか、あるいは視覚的なケアやインタラクション（例: ダブルクリックで展開）を追加すべきかを教えてください。
+- [x] Q21. `Nebula` が複数ノードをまとめる挙動（Sec.3.3.1）はスコアベースだが、ユーザーが Nebula を展開・縮小したり、集約されたノードをフォーカス/ジェスチャーで追跡したりする操作仕様が定義されていない。自動選別のみで問題ないのか、あるいは視覚的なケアやインタラクション（例: ダブルクリックで展開）を追加すべきかを教えてください。
   - Answer: Nebulaについては先の仕様なので、今は考慮しない
 
-- [ ] Q22. `Smart Gutter`（Sec.3.7）と `Minimap`/`Command Hub` のオーバーレイ（Sec.3.5/6.1）で描画対象が重複する場合、どちらの表示が優先されるべきか、また視覚的に整合を取るために `Audit Event` `resolution_hint` でどのような追加情報を添える必要があるか未定義です。確認すべき優先順位や補助的なメタデータの構成を教えてください。
-  - Answer: 複数のオーバーレイが重なる場合、**「ユーザーの現在の操作対象」**を最前面に出し、それ以外を透過または背景へ退避させる「スタッキング・コンテキスト」を適用します。
-    - 1,Command Hub,不透明度 1.0。,ユーザーの思考・入力が最優先なので、出すときは常に最前面に。
-    - 2,Smart Gutter,不透明度 1.0（アクティブ行）。,どの行を承認/却下するかの判断材料。
-    - 3,Editor Decoration,ゴーストテキスト、インラインDiff。,書き換え内容そのもの。
-    - 4,Minimap,不透明度 0.6~0.8（フローティング）。,ファイル全体の鳥瞰図であり、背景に近い。
+ - [x] Q20. `spec-nue.md` Sec.3.4 で JetBrainsMono ファミリの Bold/Italic を埋め込むことを決めたが、日本語・絵文字・右起動の記号などをカバーするフォントはどのように提供するか明確ではない。`FontContext` の `fallback_fonts` や追加バンドルによってどこまでカバーすべきか、OS フォント依存でも許容されるのかを決定してください。
+   - Answer: UIレイヤーのテキストは英語のみで JetBrains Mono 系フォント埋め込みを使い、エディタ領域は Menlo/Monaco/Courier New などの OS 等幅フォントを `fallback_fonts` に並べて JetBrains Mono と混在させつつ、日本語グリフの縮小/ベースライン調整と Emoji のカラーフォント依存を明示する方針を Sec.3.4 に追加しています。
 
-- [ ] Q23. `Global Search` のフィルター切り替え（`workspace.search.exclude` を含む範囲/ディレクトリ選択）は在来の検索設定（グローバル/ワークスペース）とどのように同期すべきか、またこの状態を永続化する必要があるか未定義です。切り替えの範囲や持続性をどこで管理すべきか教えてください。 (`spec-nue.md` Sec.6.2.1)
-  - Answer: 「揮発的なセッション・スコープ」 と 「永続的な設定・スコープ」 に分離して管理したい。
-    - 揮発的なセッション・スコープ：検索時に、除外するディレクトリを正規表現パターンで入力・指定できる
-    - 永続的な設定・スコープ：グローバル・ワークスペースごとに設定として持たせることができる
+- [x] Q22. `Smart Gutter`（Sec.3.7）と `Minimap`/`Command Hub` のオーバーレイ（Sec.3.5/6.1）で描画対象が重複する場合、どちらの表示が優先されるべきか、また視覚的に整合を取るために `Audit Event` `resolution_hint` でどのような追加情報を添える必要があるか未定義です。確認すべき優先順位や補助的なメタデータの構成を教えてください。
+  - Answer: `specs/spec-nue.md` Sec.3.7.1 にスタッキング・コンテキストと優先順位（`Command Hub` > `Smart Gutter` > `Editor Decoration` > `Minimap`）および `Audit Event` 側の `overlay_hint`（`focus_id`/`policy_id`/`config_path`）を参照する運用を明記しました。`Overlay` はフォーカス対象でない場合に透明度を下げ、`Command Hub` は `Backoff` ステータスを表示しながら `Audit Event` を再送できるようにしています。
+
+- [x] Q23. `Global Search` のフィルター切り替え（`workspace.search.exclude` を含む範囲/ディレクトリ選択）は在来の検索設定（グローバル/ワークスペース）とどのように同期すべきか、またこの状態を永続化する必要があるか未定義です。切り替えの範囲や持続性をどこで管理すべきか教えてください。 (`spec-nue.md` Sec.6.2.1)
+  - Answer: `specs/spec-nue.md` Sec.6.2.1 に `session_filters`（揮発的な UI スコープ）と `persistent_filters`（`workspace.search.exclude` 等の設定ファイル値）を持つ `SearchFilterState` を定義し、`Audit Event` (`type=search.scope_change`) で `scope_type=session|persistent` を記録しつつ UI でリセット操作を提供する運用を明記しました。永続変更は `ConfigChangeEvent` の `changed_keys` に反映して `App Host` が `Workspace Session` へ再評価を伝え、`resolution_hint=filter.sync` で `Minimap`/`Structure Path` との整合を保つようにしています。
+
+## Open

@@ -103,6 +103,8 @@
   - Before: 自然言語モードで複数ファイル/複数ハンクを含む候補の `Approval Unit`・`Audit Event` の紐付けや `Shadow Buffer` の記録粒度が未定義で、UI と整合する形で候補を提示できていなかった。
   - After: `spec-nue.md` Sec.6.1.1 に `Atomic Intent`（`parent_intent_id`）と `focus_id`/`related_event_id` で候補のまとまりを評価する RFC 2119 形式の `Approval Unit` ポリシーを追加し、Command Hub/UI・`Shadow Buffer`・`Audit Event` の整合性を保証した。
 
-## ToDo
-- [ ] P2: `Global Search` のフィルター状態（セッションごとのトグルと永続設定値）を `workspace.search.exclude`/関連設定とどう同期させるかを明確にし、永続化 API (`workspace.search.filter_persistence`) を定義する。未決事項は `specs/ask.md` Q23 に記録し、定義後に `spec-nue.md` Sec.6.2.1 で `Audit Event` への記録と UI 操作を RFC 2119 で追記する。
+- [x] P2: `Global Search` のフィルター状態（セッションごとのトグルと永続設定値）を `workspace.search.exclude`/関連設定とどう同期させるかを明確にし、永続化 API (`workspace.search.filter_persistence`) を定義する。未決事項は `specs/ask.md` Q23 に記録し、定義後に `spec-nue.md` Sec.6.2.1 で `Audit Event` への記録と UI 操作を RFC 2119 で追記する。
+
 - [ ] P2: `color-limited mode`（高彩度制限や色覚アクセス設定）を検出するトリガーと UI の切り替えルールを `specs/ask.md` Q29 で決め、`spec-nue.md` Sec.3.1.2 に Glyph/ラベルの代替表現と状態遷移の要件を追加する。
+
+## ToDo

@@ -98,6 +98,8 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `JetBrainsMono-Bold`（キーワード・強調）: AIの提案や `Command Hub` の操作候補、`Shadow Buffer` のヘッダーには太字を用いて視線を誘導することを **SHOULD** とする。強調項目が枠線や色に埋もれないよう、太さと間隔のバランスが保たれるように設定する。
 - `JetBrainsMono-Italic`（メタ情報・コメント）: ステータス注釈、コメント、控えめな説明文には斜体を使い、ノイズ感を下げることを **SHOULD** とする。`Dusty Grey` との組み合わせで、「補足」や「参照」を明示する。
 - これらフォントがカバーしきれないスクリプト（CJK/右から左など）に対しては、`FontContext` のフォールバック設定を通じて OS 由来の信頼できるフォントを利用することを **SHOULD** とする。フォールバック順序は `JetBrainsMono` 系列 → グローバル設定の `fallback_fonts` → OS の等幅フォントの順とし、どのフォントが実際に選ばれたかを `FontContext` がトレースできるよう属性を記録する。
+- メニューやサイドバーなど UI レイヤーのテキストは英語のみを前提とし、`JetBrainsMono` 系フォントの埋め込みだけで描画することを **SHOULD** とする。日本語や絵文字を含むテキストは UI で避け、どうしても必要なときは OS フォントに頼らず `FontContext` が埋め込んだ JetBrains Mono を再利用して表示トーンを揃えることで視覚的一貫性を守る。
+- エディタ本文では JetBrains Mono と混在する日本語や特殊文字を `fallback_fonts`（例: Menlo, Monaco, Courier New）で補完し、`FontContext` がそれらを優先的に選択するよう設定することを **SHOULD** とする。日本語グリフは若干縮小（0.5〜0.9 倍）し、ベースラインを -2〜-4 px 程度下げる補正を施すことで「日本語だけが浮く」印象を軽減し、Emoji/記号は OS のカラーフォントに任せる。この混在状態でも `FontContext` が実際に選択したフォント名をログやデバッガで参照可能にしておくことを **SHOULD** とする。
 
 #### 3.4.2 埋め込みと `FontContext` 登録
 
@@ -163,6 +165,17 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `Smart Gutter` は `Audit Event` の `result=pending` / `result=queued` など、まだ `Approval` が完了していない行について `Neon Cyan` の進捗リング（1行につき最大 2 本）を添えて `Minimap` の `focus_id` を追跡し、`focus_id` が変更された際は該当行の `Smart Gutter` 表示を再描画して `Command Hub` の `Backoff State` を反映することを **SHOULD** とする。`Audit Event` で `resolution_hint` が更新された場合は、`Smart Gutter` のツールチップで具体的な修正設定キー/ポリシー ID を表示することを **SHOULD** とする。
 
 `Smart Gutter` の仕様は `specs/glossary.md` に新しい用語として定義し、`specs/backlog.md` に `Smart Gutter` タスクの解決と `Command Hub`/`Shadow Buffer` との依存関係を追記しておくことを **MUST** とする。
+
+### 3.7.1 オーバーレイのスタッキング・コンテキスト
+
+`Command Hub`/`Smart Gutter`/`Editor Decoration`/`Minimap` などのオーバーレイが重なる場合、ユーザーの現在の操作対象を最前面に出す「スタッキング・コンテキスト」を維持することを **MUST** とする。優先順位は以下のとおり定義し、各レイヤーは `focus_id` との一致で自動的に透明度・インタラクション可否を切り替える。
+
+1. `Command Hub`（不透明度 1.0）: 入力・承認候補が現在フォーカスされている場合は常に最前面とし、背後のオーバーレイを無効化する。`focus_id` が `Audit Event` と合致しない場合も、最前面の選択状態を保持する。
+2. `Smart Gutter`（アクティブ行）: 現在レビュー対象の `focus_id` が属する行は `Command Hub` に次ぐ優先度で保持し、非該当時は半透明にして背景へ退避する。
+3. `Editor Decoration`（ゴーストテキストやインライン Diff）: 差分自体を編集領域に差し込むため中間レイヤーとなり、`Command Hub`/`Smart Gutter` と競合する場合は透過処理で `Command Hub` のラベル・ボタンを表示したままにする。
+4. `Minimap`（フローティング・バックグラウンド、不透明度 0.6～0.8）: 鳥瞰図に徹し、他レイヤーがフォーカスされるたびにグローを弱める。ユーザー選択が `focus_id` と一致しないときは自動的に半露出状態となる。
+
+各オーバーレイが `Audit Event` の `resolution_hint`/`overlay_hint` を参照し、表示優先度や遮蔽理由を追跡できるようにすることを **SHOULD** とする。`overlay_hint` には `focus_id`・`policy_id`・`config_path` を含め、被覆されているレイヤーを再描画するタイミングを `App Host` に通知できるようにする。必要に応じて `Command Hub` は `Backoff` ステータスのヒントを出してユーザーに次の操作を促すことを **SHOULD** とする。
 
 ---
 
@@ -425,10 +438,9 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
   - **Local RAG（Local Retrieval-Augmented Generation）**: プロジェクト内のファイル名、関数名、設定名をベクトル化または重み付けしたインデックスで保持し、曖昧な入力に対して意味的に関連する候補へ橋渡しする。
   - **Policy-Aware Scoring**: `Authorization Policy` に定義された `argument_constraints`/`execution_context` を照合し、実行可能な候補のみを上位にソートする。
 - `nue-semantic` は、候補の生成・表示・選択を 100ms 以内で完了させるように設計され、遅延が発生する場合は進行中の推論を UI 上でステータス表示することを **SHOULD** とする。
-- `nue-semantic` が現在のコンテキストだけでは実行不可能（例: セキュリティ上の制限や外部リソースへの依存）と判断した場合、`Command Hub` はユーザーへ外部エージェント（例: 高性能クラウドAI）への問い合わせを提案し、その提案は `approval_state=requires_user_consent` として `Audit Event` に記録されることを **SHOULD** とする。
-- 上記の提案は `nue-semantic` が内部リソースで解決できない場合の最後の手段とし、`Command Hub` は外部エージェントの選定ポリシーとして `requires_user_consent` かつ `Audit Event` で明示されるプロファイル（例: `external_agent_profile=cloud_lambda_v2`）に限定することを **MUST** とする。提案先候補が存在しない場合は `Command Hub` が「現在のコンテキストでは解決不能」として終了レスポンスを返すことを **SHOULD** とする。
 - `Intent/Smart Search` は候補の選択時に `MCP Router` への `run_command` や `apply_patch` の呼び出しを発生させる実行プランを返し、その過程で `Shadow Buffer` の差分として登録されるエントリと整合することを **MUST** とする。
 - `Local RAG` に使うインデックスはファイルシステムの変更（追加/削除/リネーム）を検知した後 5 秒以内に部分更新し、入力ミスや類似語を許容するキーワードマッチを備えることを **SHOULD** とする。
+- `nue-semantic` が内部リソースで解決できないと判断した場合、`Command Hub` は「この意図は現行リソースで解決できない」旨を明示し、ユーザーが `Terminal` などの `run_command` 経由で外部エージェント（例: 高性能クラウドAI）を呼び出すためのサンプルコマンドや必要な入力情報をガイドすることを **SHOULD** とする。`Command Hub`/`MCP Router` は `external_agent_profile` の一覧や `requires_user_consent` の承認ループを保持せず、外部エージェントへの問い合わせはあくまでユーザーが手動で行う運用とすることで Q15 を解決し、Nue 本体は `Audit Event` の `approval_state` に `requires_user_consent` を記録しないようにする。
 
 ### 6.1.3 `nue-semantic` のインスタンスとワークスペース分離
 
@@ -462,7 +474,9 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 
 `workspace.search.exclude` はデフォルトで除外対象に含めるディレクトリ群を定義し、ユーザーが「隠しディレクトリ/外部依存を含む」トグルで一時的にオーバーライドできるようにすることを **SHOULD** とする。スコープの変更は `Audit Event` (`type=search.scope_change`) に記録され、`App Host` が `workspace_session_id` ごとに追跡できるようにすることを **SHOULD** とする。
 
-セッション単位のフィルターオーバーライド（クエリ中の一時切り替え）と永続的な設定（同一ワークスペースでの再利用）をどう分離するかは `specs/ask.md` Q23 で未解決のため、現状は「操作の即時反映」と「設定ファイルへの書き戻し」とを別経路で扱い、導入後にPersistent filter state の保存パス/キーを追加することを **SHOULD** とする。永続化仕様が確定するまでは、UIは現在のフィルター設定を一時的に保持しつつ、ユーザーが `workspace.search.exclude` のデフォルトを復元する操作を明示的に行えるようガイドすべきである。
+検索スコープのフィルターは `SearchFilterState` として `session_filters`（現在の `Global Search` パネルが保持する揮発的な正規表現/ディレクトリ選択）と `persistent_filters`（`workspace.search.exclude` 等の設定ファイルに紐づく永続的な値）に明確に分離することを **MUST** とする。`Session_filters` は `Command Hub`/`Global Search` の UI 状態で保持され、セッションをまたがず再起動時に消える。一方 `persistent_filters` は `Workspace` または `Global` の設定ファイルに書き戻され、同期時に `Workspace Session` が再評価して `search_scope_revision` を増分する。その際、`SearchFilterState` の更新は `Audit Event` (`type=search.scope_change`, `scope_type=session|persistent`, `filters=...`) に記録され、ユーザーがどのようにフィルターを変更したかを監査できるようにすることを **SHOULD** とする。UI は `Reset to defaults` 操作を提供し、`session_filters` をクリアすると同時に現在の `persistent_filters` を参照して `Global Search` リストを再描画することを **SHOULD** とする。
+
+永続的なフィルター変更は `workspace.search.exclude` などのキーを含む構成ファイルに逐次保存され、`App Host` は変更を検知した後 5 秒以内に再評価を行い、新旧フィルター値を `ConfigChangeEvent` の `changed_keys` に含めることで `Workspace Session` へ `Hot Reload` を通知する。こうした構成変更によって `session_filters` が影響を受ける場合（例: 永続対象ディレクトリの追加）、`Global Search` UI は強調バナーでユーザーへ通知し、`Audit Event` に `resolution_hint=filter.sync` を付与して `Minimap`/`Structure Path` との整合を取ることを **SHOULD** とする。
 
 `Global Search` は結果をストリーミング表示し、ファイル構造の更新・差分生成に伴って真新しい一致が発見された際には「再計算中」ラベルを出しつつ直前の一覧を保持することを **SHOULD** とする。検索処理が重くなる場合はパネル上に処理済ファイル数/残件数の進捗を表示し、必要に応じてユーザーが計算をキャンセルしたり新たなフィルターを適用したりできるようにすることを **SHOULD** とする。
 
@@ -535,14 +549,14 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 #### 復元
 
 1. ユーザーが対象ワークスペースを再アクティブにすると `App Host` は最新の `SessionSnapshot` を読み込み、`Audit Event`（`type=sleep.resume`, `snapshot_id`）を生成することを **MUST** とする。
-2. `Workspace Session` を再生成し、`workspace_session_id` を再利用した上で `MCP Router`・`Editor Core`・`Terminal Emulator`・`nue-semantic` を再起動する。`ToolExecutionState`/`ToolRequestQueue` はスナップショットと整合するようにキュー状態を再構築し、`Approval Request` は `Shadow Buffer` 内の `related_event_id` に戻す。 
+2. `Workspace Session` を再生成し、`workspace_session_id` を再利用した上で `MCP Router`・`Editor Core`・`Terminal Emulator`・`nue-semantic` を再起動する。`ToolExecutionState`/`ToolRequestQueue` はスナップショットと整合するようにキュー状態を再構築し、`Approval Request` は `Shadow Buffer` 内の `related_event_id` に戻す。
 
    再起動後、`App Host` は Sleep 中に蓄積した `Sleep Config Change Aggregator` をフラッシュし、`Dependency-Aware Re-init Sequence`（`app`→`router`→`terminal`→`editor`→`semantic`→`agent`）の順で永続化済みのスコープを再適用することを **MUST** とする。各スコープについては、Aggregator の `changed_keys` の和集合と最終値をそのまま `ConfigChangeEvent` として再構成し、元の `config_revision` も含めて `Workspace Session` に配信することを **MUST** とする。適用成功時には `Audit Event`（`type=config.reload.sleep.apply` / `scope` / `config_revision`）を記録し、失敗時には前述の `Audit Event` と `Cyber Magenta` バナーでユーザーへ通知することを **MUST** とする。
 
    再適用後、Aggregator の状態はクリアされ、復帰完了まで同じ Sleep セッションに再利用しないことを **SHOULD** とする。復帰処理の最後で `Command Hub` が `Approval Requests` を再表示する前にすべての設定差分が確実に反映されていることを確認することを **SHOULD** とする。
 3. 開いていたタブは `SessionSnapshot` に従って順番・スプリット構成・カーソル位置・ビューポートを復元し、`Minimap`/`Structure Path`/`Smart Gutter` にも `focus_id` を通知する。復元完了後、`Command Hub` は自動で `Approval Requests` を再表示することを **SHOULD** とする。
 4. `App Host` は Sleep 復元後、直前の `SessionSnapshot` と異なる `cursor`/`focus` 状態を `focus_discrepancy` として `Audit Event`（`type=sleep.focus-discrepancy`）に記録し、ユーザーへ差分があることを通知することを **SHOULD** とする。
-5. 復元時に未処理差分がある `Shadow Buffer` については `Command Hub` が `Solar Flare` を点滅させて `Approval Request` を強調し、sleep 解除直後でも承認が継続できる状態とする。 
+5. 復元時に未処理差分がある `Shadow Buffer` については `Command Hub` が `Solar Flare` を点滅させて `Approval Request` を強調し、sleep 解除直後でも承認が継続できる状態とする。
 
 `Sleep Mode` はメモリ・CPU を解放しながらも、`Workspace Session` を再び選択した瞬間に 1 秒以内（`workspace.sleep.resume_budget_ms`）で作業状態を復元するよう設計することを **SHOULD** とする。 `App Host` は最大 `sleep.concurrent.max`（デフォルト 2）の Sleep セッションを同時に保持し、上限を超える場合最も古いセッションを `sleep.terminate_on_overflow=true` で終了して `Audit Event`（`type=sleep.terminate`, `reason=overflow`）を生成することを **SHOULD** とする。
 
