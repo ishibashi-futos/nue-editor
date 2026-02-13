@@ -6,6 +6,8 @@
 | 用語 | 分類 | 定義(description) | note |
 | :- | :- | :- | :- |
 | Nue | プロダクト | Rust/GPUI ベースのマルチプラットフォーム対応エディタ兼ターミナルエミュレーター。 | 本仕様の対象プロダクト。 |
+| Neon-Night Theme | デザイン | 深いネイビー基調にシアン・マゼンタを配した `Nue` のシステムテーマ。 | `spec-nue.md` Sec.3.1 でカラー/アニメーション規約を定義し、アクセシビリティ基準を満たすことを要求している。 |
+| Nue Color Palette | デザイン | WCAG AA を満たす `Deep Abyss` ～ `Dusty Grey` の 9 色セット。 | Sec.3.1.1 で各用途（背景/状態/テキスト）が明記され、`nue-ui` GPUI 定義への反映を義務付ける。 |
 | App Host | アーキテクチャ | 全ワークスペースのライフサイクル管理、グローバル設定管理、通知集約を行う上位実行主体。 | Runtime と同義で扱わない。 |
 | Workspace Session | アーキテクチャ | ワークスペース単位で独立動作する実行単位。 | 障害分離の最小単位。 |
 | AI Agent | 実行主体 | ユーザー意図に基づき MCP ツール経由で作業を実行するエージェント。 | 主体はユーザーと区別する。 |
@@ -16,7 +18,7 @@
 | Galaxy View | UI | `v1.0` 以降で導入される依存関係ベースのグラフ表示ビュー。LSP 依存関係をノード/エッジで表現し、AI が触れたノードは `彗星` で強調し、影響範囲は `衝撃波` で伝播を可視化する。 | Legacy View とは役割を明確に分離し、最大 500 ノードまで描画した状態で 45fps 以上を維持し、WCAG AA 相当のアクセシビリティを満たす。 |
 | Workspace Rail | UI | ワークスペース切替と状態表示を担う左レイル UI。 | Slack-like は説明語で非用語。 |
 | Command Hub | UI | `Cmd + Shift + P` / `Ctrl + Shift + P` で開くモーダル型コマンドパレット。AIと人間が意図を共有し、MCP Tool呼び出しを起点としてショートカット/履歴/自然言語候補を表示する。 | `spec-nue.md` Sec.6.1 で構造とモードを定義する。 |
-| Agent Status | 状態 | エージェント実行状態を示す列挙値。 | `Busy`/`Waiting`/`Error`/`Idle`。 |
+| Agent Status | 状態 | エージェント実行状態を示す列挙値。 | `Busy`/`Waiting`/`Error`/`Idle`。 `spec-nue.md` Sec.3.1.2 では各状態を `Neon Cyan`/`Solar Flare`/`Cyber Magenta`/`Dusty Grey` などで色/アニメーション表現するルールを定義し、`Workspace Rail`・`Command Hub` などに一貫して反映することを要求している。 |
 | Intent / Smart Search | 機能 | `Command Hub` の自然言語入力モードで、`nue-semantic` を中心とした候補推論により `MCP Tool` や UI アクションを提案する。 | 100ms以内の候補生成と、発行元・Approval Stateを付与するプロセスを含む（Sec.6.1.1）。 |
 | nue-semantic | コンポーネント | Intent/Smart Search を構成するローカル生成AIエンジン。Phi 等の SML モデルをバインドし、Intent Resolver・Local RAG・Policy-Aware Scoring を組み合わせて候補を出す。 | 外部 API には依存せずオフライン実行を想定（Sec.6.1.2）。 |
 | Intent Resolver | コンポーネント | `nue-semantic` のサブモジュールで、自然言語入力をミリ秒スケールでトークナイズし、MCP Tool や UI アクションにマッピングする推論エンジン。 | `approval_state` や context を含む実行プランを返す必要がある。 |

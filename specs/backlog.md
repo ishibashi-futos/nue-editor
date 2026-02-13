@@ -34,28 +34,11 @@
   - Before: `hot_reload_scope` の列挙値と複数スコープにまたがる再初期化順序が未定義で、依存関係を考慮した再評価エラー時の挙動が不明確であった。
   - After: `spec-nue.md` Sec.5.3.1 に許容列挙値（`app`/`router`/`terminal`/`editor`/`semantic`/`agent`）と「Dependency-Aware Re-init Sequence」順序を RFC 2119 で明記し、未知 scope を `hot_reloadable=false` で再起動要求、`Audit Event` に `config.reload.unknown_scope` を記録するフェールセーフを追加した。
 
-## ToDo
+- [x] P1: デザイン・カラーの具体化
+  - Before: カラーパレット、エージェント状態・差分表現ともに未定義で、アクセシビリティや承認結果の視覚化方針が明確でなかった。
+  - After: `spec-nue.md` Sec.3.1.1/3.1.2 に WCAG AA 準拠のパレット（Deep Abyss ～ Dusty Grey）と `Agent Status` の状態別エフェクト、差分/承認インジケーターの色規約を RFC 2119 スタイルで記載し、`nue-ui` GPUI への反映を要求した。
 
-- [ ] P1: デザイン・カラーの具体化を進める
-  - カテゴリ,色名,カラーコード,主な使用箇所 / 役割
-    - Background,Deep Abyss, #0B0E14 ,エディタのメイン背景。最も暗いレイヤー。
-    - Surface,Space Grey, #1A1D23 ,サイドバー、タブ、パネルの背景。Baseより一段明るい。
-    - Border,Midnight Glass, #2D323C ,パネルの境界線、セパレーター。
-    - Primary (AI),Neon Cyan, #00F5FF ,エージェント活動中、AI提案のハイライト、ミニマップのAI位置。
-    - Success / Accept,Electric Lime, #32FF7E ,一括承認ボタン、正常終了通知、保存済みインジケーター。
-    - Warning / Wait,Solar Flare, #FFF200 ,ユーザー入力待ち、未承認の差分ガター、警告アイコン。
-    - Error / Alert,Cyber Magenta, #FF006E ,ビルドエラー、認可拒否、Galaxy Viewでのノード異常振動。
-    - Information,Ether Purple, #BF5AF2 ,LSPの型情報、シンボル定義、Galaxy Viewの接続線（依存関係）。
-    - Text (Main),Cloud White, #E4E7EB ,標準テキスト、コード文字。
-    - Text (Muted),Dusty Grey, #717984 ,コメント、無効なUI要素、パンくずリスト。
-  - エージェントの状態表現
-    - Busy: Neon Cyan(#00F5FF) がパルス状に発光（Opacity 0.4 ↔ 1.0）。
-    - Waiting: Solar Flare(#FFF200) が低速で点滅。
-    - Error: Cyber Magenta(FF006E) が鋭く明滅。
-  - 差分（Diff）と承認の視覚化
-    - 未承認の行 (Gutter): Solar Flare（イエロー）の縦線。
-    - 承認済み / 確定: インジケーターが消滅し、テキストが Cloud White に馴染む。
-    - 承認ボタン: Electric Lime（グリーン）のグロー効果。
+## ToDo
 
 - [ ] P1: 使用可能フォントの具体化と埋め込み
   - OSSフォントを使用可能フォントに設定、バイナリに埋め込み
