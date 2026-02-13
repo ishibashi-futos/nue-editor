@@ -16,6 +16,8 @@
 | UI View | UI | ユーザー操作と状態可視化を担当する表示層。 | Legacy/Galaxy を含む。 |
 | Legacy View | UI | ディレクトリツリー中心の階層表示ビュー。 | 物理構造把握向け。 |
 | Galaxy View | UI | `v1.0` 以降で導入される依存関係ベースのグラフ表示ビュー。LSP 依存関係をノード/エッジで表現し、AI が触れたノードは `彗星` で強調し、影響範囲は `衝撃波` で伝播を可視化する。 | Legacy View とは役割を明確に分離し、最大 500 ノードまで描画した状態で 45fps 以上を維持し、WCAG AA 相当のアクセシビリティを満たす。 |
+| Focus Score | UI メトリクス | Galaxy View がノードの優先描画を決めるために算出する段階的スコア。P0（AI Activity）〜P3（Context）で構成し、スコアの低いノードは集約対象となる。 | `spec-nue.md` Sec.3.3.1 で 500 ノード超時の描画維持に使用される。 |
+| Nebula | UI | 同一ディレクトリ内の低優先度ノード群をまとめた高レベル集合体。 | Galaxy View の 500 ノード超時に `Focus Score` で選別されたノードを代替表示する「星雲」クラスタ。 |
 | Workspace Rail | UI | ワークスペース切替と状態表示を担う左レイル UI。 | Slack-like は説明語で非用語。 |
 | Command Hub | UI | `Cmd + Shift + P` / `Ctrl + Shift + P` で開くモーダル型コマンドパレット。AIと人間が意図を共有し、MCP Tool呼び出しを起点としてショートカット/履歴/自然言語候補を表示する。 | `spec-nue.md` Sec.6.1 で構造とモードを定義する。 |
 | Backoff State | UI | `Command Hub` が候補更新遅延（16ms を超過）を検知した際に表示する遷移状態。遅延中は直前候補を保持し、`Re-scoring…` / `awaiting nue-semantic` 等の進捗ラベルと `Action Mode`/`Navigation Mode` への移行ヒントを併せて出す。 | `spec-nue.md` Sec.6.1.1 で再スコアリング中の挙動を定義している。 |
@@ -27,6 +29,8 @@
 | Policy-Aware Scoring | 機能 | `nue-semantic` が `Authorization Policy` の `argument_constraints`/`execution_context` を評価し、実行可能な候補を上位にソートする評価機構。 | 実行可能性と `approval_state` を加味した優先順位付けを実現する（Sec.6.1.2）。 |
 | Shadow Buffer | データモデル | エージェント変更を承認前に保持する一時差分領域。各差分には発生時刻・発行元・対象ファイル・`Agent Status` を含み、`Galaxy View` と `Legacy View` で列挙/レビューできる。初期リリースでは `Accept` のみを提供し、`Workspace Session` 単位と `ファイル単位` の承認粒度をサポートする。 | 承認後に本バッファへ反映し、永続化されない。 |
 | Accept | 操作 | Shadow Buffer の差分をユーザーが承認し、確定反映する操作。 | 初期リリースは `Accept` のみ提供。 |
+| Reject | 操作 | Shadow Buffer 上の差分をユーザーが却下し、該当変更を破棄する操作。 | `spec-nue.md` Sec.4.2.1 で `Audit Event` 確認後にエージェントへ再生成を促すフローを定義。 |
+| Revert | 操作 | 過去に `Accept` した差分を取り消し、逆向きの差分を Shadow Buffer へ生成する操作。 | `spec-nue.md` Sec.4.2.1 で `result=revert` の `Audit Event` と再承認ループを規定。 |
 | Approval Unit | 操作 | 変更承認の粒度（例: 一括、ファイル単位、ハンク単位）。初期リリースは `Workspace Session` 単位の一括 `Accept` と `ファイル単位 Accept` を提供し、`Partial Accept`/`Reject`/`Revert` は未実装。 | 将来的にハンク単位など細分化できる。 |
 | Approval State | 状態 | `MCP Router` のポリシーが指す承認条件。 | `auto_allow`/`requires_user_consent`/`blocked` のいずれか。`requires_user_consent` は Shadow Buffer 承認の進行と連動し、`blocked` は常時拒否。 |
 | Global Config | 設定 | ユーザー全体に適用される設定。 | `~/.config/nue/config.yaml`。 |

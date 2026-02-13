@@ -91,7 +91,20 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
   * **パフォーマンス**: 500 個までの可視ノードを含む更新では、Galaxy View の描画/遷移は最低45fpsを維持し、データの追加・削除・焦点移動時も GPU レベルのダブルバッファリングとインクリメンタルレイアウト更新で一貫性を保つ。500 個を超えるノードは動的に詳細度を下げ、表示外のノードを折りたたむことで、レイテンシとフレームレートを安定化させる。500 個超え時の詳細度低下はユーザーの操作によらず自動で適用され、手動でフォーカスや展開を制御するメカニズムは提供しないものとする。
   * **アクセシビリティ**: カラーパレットは WCAG レベル AA のコントラスト比を満たし、視覚的な誤認を避けるためにエッジ/ノードに明確なラベルと代替テキストを付与する。Galaxy View の内容は Legacy View やアクセシビリティパネルで的確に列挙・検索できることを保証する。
 
+#### 3.3.1 Galaxy View のスケーリング・ヒューリスティック
 
+Galaxy View は常に 500 個以内のノードを明示的に描画することを **MUST** とし、超過時には自動で対象ノードをスコア順に絞り込む。各ノードには以下の `Focus Score` を計算し、高スコア順に描画を維持する。
+
+- `P0: Active, AI Activity` – エージェントが現在編集/生成中のファイル（`彗星`）およびその直近依存先。こうしたノードは最も高い描画優先度を **SHOULD** 持つ。
+- `P1: Focus, User Focus` – ユーザーが開いているタブやカーソル位置にあるファイル。ユーザー操作との整合性を保つため **SHOULD** 描画対象に残す。
+- `P2: Impact, Dependency Hub` – 高度な依存関係を抱える中心的モジュール。依存線の本数や `Galaxy View` 内での接続密度に応じてスコアを高める。
+- `P3: Context, Distance` – P0/P1 ノードからのグラフ距離が 1 以内のノード。文脈理解のために一段階低い優先度で保持するが、必要に応じて折りたたむ。
+
+スコアの低いノードは自動的に集約・折りたたまれ、代替表現として高レベルの「星雲（Nebula）」を用いる。`Nebula` は同一ディレクトリ内の `Focus Score` が一定未満の子ノード群をひとまとめにし、ディレクトリ単位の発光体として描画することを **SHOULD** とする。これは 500 個を超えるノード群を視覚的に維持しつつ、カメラ移動や操作のコストを削減する。
+
+外部依存（`node_modules`/`vendor` など）のノードは、ユーザーが明示的に修正対象としている場合を除きデフォルトで描画対象から除外することを **MUST** とし、必要に応じてヒエラルキーから展開できるトグルを用意する。
+
+パフォーマンス維持のため、Galaxy View はフォーカス周辺のノードのみを再配置するインクリメンタルレイアウトを **SHOULD** 用い、遠方ノードは座標を固定することで休止状態に置く。描画には同一形状のノード・エッジに対して GPUI の GPU インスタンシングを活用し、ドローコールを最小化することも **SHOULD** とする。
 
 ---
 
@@ -171,6 +184,21 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
 
 4. **追加承認操作**
    これらの操作は v1.0 以降の段階的拡張項目とする。ToDo セクション（Sec.8）で `Reject`/`Partial Accept`/`Revert` の差分状態遷移と `Audit Event` 記録ルールを整理し、実装段階で詳細化する。
+
+### 4.2.1 承認操作セットと Approval Unit
+
+`Shadow Buffer` は `Accept` に加えて `Reject`・`Partial Accept`・`Revert` の操作セットを提供し、各操作は必ず明示的な `Approval Unit`（Workspace Session / ファイル / ハンク）と組み合わせて UI に提示されることを **MUST** とする。すべての操作は `Audit Event` に `result` フィールドを含み、ユーザーや監査システムが操作の種類と影響範囲を辿れるようにする。
+
+- `Accept`（**MUST**）: 選択された `Approval Unit` の差分は `Editor Core` にマージされ、`Shadow Buffer` から削除される。`Audit Event` には `result=accepted`、`approval_unit`、`changed_range`/`file_path`、`agent_id` を含め、`UI View` は当該箇所を `Galaxy Feedback` で `彗星` として強調したまま輝度を落としつつ `Electric Lime` の完了マーカーを表示する。`Accept` は `Workspace Session` 単位および `ファイル単位` を `MUST` でサポートし、ユーザー操作が細分化できるよう `Partial Accept` により `ハンク単位` も `SHOULD` 対応する。
+- `Reject`（**SHOULD**）: ユーザーが差分を却下した場合、該当 `Shadow Buffer` エントリは破棄され、`Editor Core` や `Shadow Buffer` に変更を加えない。`Audit Event` には `result=rejected`、`reason=manual_reject`、`approval_unit`、`agent_id` を含める。`MCP Router` は同一変更に対し再度 `requires_user_consent` 承認を送り、エージェントには `message` で「差分が拒否されたため再生成してください」と返す。拒否された差分を再利用する必要がある場合は、`Command Hub` から新しい意図を発行させることを **SHOULD** とする。
+- `Partial Accept`（**SHOULD**）: 大粒度の差分を `ハンク単位`/`行単位` に分割し、それぞれ `Approval Unit` として個別の `Accept` を実行できるようにする。`Shadow Buffer` は、受け入れた部分を `Editor Core` に反映し、残留した行は新たな差分として粒度を維持する。`Audit Event` は `result=partial_accept`、`approved_ranges`（ハンクの開始・終了行）を含めて記録し、残差分には `related_event_id` を付与してトレースできるようにする。`Partial Accept` に伴う UI では、差分ビューにチェックボックス/ドラッグ選択を置き、承認済みセクションを薄く表示することを **SHOULD** とする。
+- `Revert`（**SHOULD**）: 過去に `Accept` した差分を取り消す操作であり、`Shadow Buffer` に逆向きの差分を生成して `Approval Unit` を再評価する。`Audit Event` は `result=revert`、`reverted_event_id`、`file_path` を含み、再度 `requires_user_consent` 承認が必要なものは `approval_state=pending` として処理する。`UI View` は `Revert` 予定の行を `Solar Flare` でマークし、ユーザーがキャンセルできるように `Esc` や `Undo` 操作を提供することを **SHOULD** とする。
+
+### 4.2.2 UI / Core 整合と `Audit Event`
+
+`Shadow Buffer` での承認操作は `UI View` の差分一覧（`Command Hub` の `Approval Requests` パネル含む）と `Editor Core` の状態を常に一致させることを **MUST** とする。具体的には、`UI View` 上の操作が発火したとき、同じ `approval_unit` を含む `Audit Event` が生成され、それが `Editor Core` のマージ/削除/再生成（`Revert`）とトリガー同期すること。`Shadow Buffer` は、`Partial Accept` や `Revert` により差分の行番号が変化した場合にも `focus_id` を更新し、`Galaxy Feedback` で対象ノードを再ハイライトすることを **SHOULD** とする。
+
+すべての承認操作について、`Audit Event` には `result`（`accepted`/`rejected`/`partial_accept`/`revert`）と併せて `approval_unit`（`workspace`/`file`/`hunk`）を必ず含めることを **MUST** とし、その情報により `App Host` の監査パネルが絞り込み可能になる。`Partial Accept` により細分化された差分は `related_event_id` で親イベントと関連づけることを **SHOULD** とし、`Revert` の再承認では同一 `policy_id` を参照して過去のキャッシュを破棄する処理を **MUST** とする。
 
 ### 4.3 ターミナルエミュレーター最小要件
 
@@ -319,15 +347,3 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
 - `Local RAG` に使うインデックスはファイルシステムの変更（追加/削除/リネーム）を検知した後 5 秒以内に部分更新し、入力ミスや類似語を許容するキーワードマッチを備えることを **SHOULD** とする。
 
 以上により `Command Hub` が意図を中心とした起点となり、AIエージェントと人間が共に進化するループの起点として機能する。
-
----
-
-## 7. フロントエンド・デザイン実装プロセス
-
-デザインは、AIが操作可能な形式で管理する。
-
-* **ツール**: **Penpot**（オープンソース・SVG/CSSベース）。
-* **手法**:
-1. プロジェクト内にUI定義ファイル（CSS/SVG）を置く。
-2. Codex（エージェント）にMCP経由でそのファイルを編集させ、デザインの微調整（色、レイアウト）を行わせる。
-3. 確定したデザイン数値を `nue-ui` の GPUI 定義に落とし込む。

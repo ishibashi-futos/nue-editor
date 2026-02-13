@@ -41,6 +41,9 @@
 - [x] P1: Command Hubの候補更新遅延と外部エージェント提案の挙動
   - Before: 16ms を超える候補更新遅延時の UI 表示と `Action/Navigation Mode` への案内、`nue-semantic` の遅延中の再スコアリング状態、外部エージェント提案の制御ポリシーが未定義であった。
   - After: `spec-nue.md` Sec.6.1.1 で `Backoff` 状態が遅延中の候補を保持し進捗ラベルを表示すること、`Action Mode`/`Navigation Mode` への移行ヒントを明示し、`nue-semantic` の再スコアリング中も UI が状態を伝えることを RFC 2119 で定義した。Sec.6.1.1-6.1.2 では外部エージェント提案を `requires_user_consent` + `Audit Event` で限定プロファイル（例: `external_agent_profile=cloud_lambda_v2`）のみに許可し、候補が存在しない場合に「現在のコンテキストでは解決不能」レスポンスを返すと記述した。
+- [x] P1: `Shadow Buffer` の承認モデルを定義する
+  - Before: `Accept` 以外（Reject/Revert/Partial Accept）が未定義で、運用手順が確立できない。
+  - After: `spec-nue.md` Sec.4.2.1/4.2.2 で `Shadow Buffer` が提供すべき `Accept`/`Reject`/`Partial Accept`/`Revert` の承認操作、それぞれの `Approval Unit`・`Audit Event` フィールド・Editor/UI との整合ルールを RFC 2119 形式で定義し、差分の分割・拒否・逆方向承認の更新手順と通知要件を固めた。
 
 ## ToDo
 
@@ -51,10 +54,6 @@
     - メタ情報 / コメント,JetBrainsMono-Italic.ttf,コメントやMuted Textの区別。
   - UIの初期化プロセス内で埋め込んだバイナリを `FontContext` に登録
 
-
-- [ ] P1: `Shadow Buffer` の承認モデルを定義する
-  - Before: `Accept` 以外（Reject/Revert/Partial Accept）が未定義で、運用手順が確立できない。
-  - After: 承認操作セット、`Approval Unit`、競合時挙動を定義し、UI 操作と Core 反映ルールを一致させる。
 
 - [ ] P1: `MCP Router` ポリシー衝突時の優先順位を定義する
   - Before: 認可粒度（ツール/引数/実行コンテキスト）は確定したが、`allow` と `deny` の衝突解決規則が未定義。
