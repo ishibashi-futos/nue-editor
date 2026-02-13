@@ -67,6 +67,8 @@
 
 - [x] Q27. Intent/Smart Search の候補が複数ファイル・複数ハンクにまたがる場合、どの `Approval Unit` を選び、`Shadow Buffer` の差分と `Audit Event` の `related_event_id`/`focus_id` をどう更新するかを決めたか？
   - Answer: `spec-nue.md` Sec.6.1.1 で `parent_intent_id` をもつ **Atomic Intent** に基づいて候補を集約しつつ、`focus_id` 単位の `Approval Unit` を Shadow Buffer に個別記録するルールを RFC 2119 形式で記述した。Command Hub/UI は「5 箇所の変更」などの集約ラベルを表示しながら個別ハンクの確認・承認も可能にし、`Audit Event` には各 `focus_id` のリストと `related_event_id=parent_intent_id` を含めて部分承認/拒否が追跡できる状態にした。これにより単一の自然言語インテントに対する UI、Shadow Buffer、監査の整合性が保証される。
+- [x] Q24. `Semantic Match` 結果のうち `Command Hub` へ送る `Relevance Intent` の定義と構造（`Approval State` との組み合わせや `Audit Event` への記録フィールド）が未定義です。この `Relevance Intent` をどこで生成し、どのように `Intent Request` にマッピングすべきか教えてください。 (`spec-nue.md` Sec.6.2.2)
+  - Answer: `nue-semantic` が `Relevance Intent` に `semantic_score`/`focus_ids`/`parent_intent_id`/`approval_state`/`related_audit_event_id` を含め、`Command Hub` がそれを `Intent Request` に転送して `MCP Router` に引き渡す流れを Sec.6.2.2 に明記した。`Audit Event` はこれらのフィールドと `focus_id` 一覧・`related_event_id` を保存し、`Shadow Buffer` との `Intent`・`Atomic Intent` の整合を支えることを **SHOULD** としている。
 
 - [x] Q19. `Shadow Buffer` の `Reject`/`Partial Accept`/`Revert` と各 `Approval Unit` の関係や、`Audit Event` の記録項目、UI 連携をどこまで保証すべきかが未定義です。特に非連続行の `Partial Accept` や逆方向差分の `Revert` 後の再承認の扱いを決めたいです。
   - Answer: `spec-nue.md` Sec.4.2.1/4.2.2 で差分操作ごとに許容される `approval_unit`（`workspace`/`file`/`hunk`）および `result`/`focus_id`/`related_event_id`/`approved_ranges`/`reverted_event_id` 等の `Audit Event` フィールドを列挙し、`Partial Accept` の非連続レンジ・再生成 `focus_id`、`Revert` の逆向き差分と `related_event_id` で UI との整合を保持するフロー、`Reject` の再承認トリガーと `MCP Router` のメッセージ返却を RFC 2119 で規定した。
@@ -127,9 +129,8 @@
     - 揮発的なセッション・スコープ：検索時に、除外するディレクトリを正規表現パターンで入力・指定できる
     - 永続的な設定・スコープ：グローバル・ワークスペースごとに設定として持たせることができる
 
-- [ ] Q24. `Semantic Match` 結果のうち `Command Hub` へ送る `Relevance Intent` の定義と構造（`Approval State` との組み合わせや `Audit Event` への記録フィールド）が未定義です。この `Relevance Intent` をどこで生成し、どのように `Intent Request` にマッピングすべきか教えてください。 (`spec-nue.md` Sec.6.2.2)
-  - Answer: 生成フローは次のとおり
-    - Generation (nue-semantic): ユーザーの自然言語入力を Phi-3/Qwen が解析し、候補となる ツールと引数（Action）を複数生成します。
-    - Internal Validation (Command Hub): 生成された intent が、現在のコンテキスト（エディタがフォーカスされているか等）で実行可能かをチェック。
-    - Candidate Presentation (UI): パレットに「アクションの候補」として表示。AIの確信度が高い場合は、決定打としてハイライト。
-    - Local Execution (nue-app): ユーザーが選択した瞬間、システム内の Dispatcher が該当する Rust 関数を直接実行。
+- [ ] Q29. 高彩度制限や色覚制約時に `color-limited mode` を自動検出して UI の描画レイヤーを `Glyph`/ラベル中心に切り替えるトリガーや、そのモード固有の描画・通知ルールが未定義です。OS 設定やユーザーのアクセシビリティ設定との連携をどう扱うべきか教えてください。 (`spec-nue.md` Sec.3.1.2)
+  - Answer: 個人利用想定しているため、複雑な仕様は不要
+    - 方式: OS自動検出は行わず、nue-config の設定値のみで制御します。
+    - 設定キー: ui.accessibility.high_contrast: bool (default: false)
+    - UIアクセス: Command Hub から > Toggle High Contrast Mode で即座にオンオフできるようにします。

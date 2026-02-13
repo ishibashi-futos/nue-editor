@@ -70,6 +70,8 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
 
 これらのカラールールは `nue-ui` の GPUI 定義に反映し、パレットを変更する場合はいずれの用途が影響を受けるかを追跡できるようデザインシステムに記録することを **SHOULD** とする。
 
+高彩度制限や色覚制約など `color-limited mode` を有効化するトリガー（例: ユーザーのアクセシビリティ設定、OS のハイコントラスト状態）については本仕様に明文化されておらず、`specs/ask.md` Q29 で意思決定予定である。このため、UI は色に依存しない `Glyph`/ラベル/テキストを常時併用する設計とし、トリガーが確定した際には当該モードで必要な代替表現へ即時切り替えできる柔軟性を持たせることを **MUST** とする。
+
 ### 3.2 ワークスペース・レイル (Slack-like Switcher)
 
 各アイコンにエージェントの**ライブステータス**を表示する。
@@ -461,6 +463,8 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 
 `workspace.search.exclude` はデフォルトで除外対象に含めるディレクトリ群を定義し、ユーザーが「隠しディレクトリ/外部依存を含む」トグルで一時的にオーバーライドできるようにすることを **SHOULD** とする。スコープの変更は `Audit Event` (`type=search.scope_change`) に記録され、`App Host` が `workspace_session_id` ごとに追跡できるようにすることを **SHOULD** とする。
 
+セッション単位のフィルターオーバーライド（クエリ中の一時切り替え）と永続的な設定（同一ワークスペースでの再利用）をどう分離するかは `specs/ask.md` Q23 で未解決のため、現状は「操作の即時反映」と「設定ファイルへの書き戻し」とを別経路で扱い、導入後にPersistent filter state の保存パス/キーを追加することを **SHOULD** とする。永続化仕様が確定するまでは、UIは現在のフィルター設定を一時的に保持しつつ、ユーザーが `workspace.search.exclude` のデフォルトを復元する操作を明示的に行えるようガイドすべきである。
+
 `Global Search` は結果をストリーミング表示し、ファイル構造の更新・差分生成に伴って真新しい一致が発見された際には「再計算中」ラベルを出しつつ直前の一覧を保持することを **SHOULD** とする。検索処理が重くなる場合はパネル上に処理済ファイル数/残件数の進捗を表示し、必要に応じてユーザーが計算をキャンセルしたり新たなフィルターを適用したりできるようにすることを **SHOULD** とする。
 
 ### 6.2.2 セマンティック検索統合
@@ -468,6 +472,19 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 `Semantic Search` は `Global Search` の結果リストと同一 UI に統合され、`Command Hub` の自然言語モード（プレフィックスなし）で入力された意図を `nue-semantic` の `Intent Resolver` へ渡すことで意味ベースのマッチを生成することを **MUST** とする。`Local RAG` のベクトルインデックスはファイル名・関数名・コメント・設定名などの要素を保持し、`semantic_score` を計算して `Global Search` の一覧内に `Semantic Match` バッジとスコアを表示することを **SHOULD** とする。
 
 `Semantic Search` の結果は目的語の意味的関連性を優先し、高スコアファイルは `Neon Cyan` のハイライトと専用 `Glyph` で表示することを **SHOULD** とする。これらの結果は `Smart Gutter`・`Structure Path` にも反映し、該当する行にハイライトを付与すると同時に `Command Hub` に `Relevance Intent` を起票して `Intent Request` へ連携できることを **MUST** とする。
+
+#### Relevance Intent の構造と連携
+`Relevance Intent` は `nue-semantic` の `Semantic Search` が生成する意図トークンであり、`Command Hub` に渡された際に以下の情報を **MUST** で保持する。
+
+- `semantic_score`: 候補の意味的一致度（0.0〜1.0）で、UI はスコアが高いものを優先表示し、`Audit Event` にも保存して後からの分析に利用する。
+- `focus_ids`: `Shadow Buffer` に登録された各差分ハンクの `focus_id` リスト。`Command Hub` はこの一覧を使って候補を展開し、ユーザーが任意の `focus_id` を選べる UI を提供することを **SHOULD** とする。
+- `parent_intent_id` / `related_event_id`: Atomic Intent を表す一意の識別子で、複数の `focus_id` を含む場合はそれぞれをこの ID で関連づけ、`Audit Event` の `related_event_id` および `Command Hub` の候補集約視点に一致させる。
+- `approval_state`: `nue-semantic` が `Authorization Policy` を参照して計算した `auto_allow`/`requires_user_consent`/`blocked` の値。`Command Hub` はこの値を `Intent Request` に引き継ぎ、`MCP Router` が同じ承認ルールで最終判定できるようにする。
+- `related_audit_event_id`: 直前の `Audit Event`（例: 기존の差分生成や再スコアリング結果）を指す ID。`Command Hub` は選択時にこの ID を `Intent Request` へ付与して、`MCP Router` と `Shadow Buffer` が同じトレーサビリティを維持する。
+
+`Command Hub` は `Relevance Intent` を受け取ったとき、上記の `focus_ids` を元に `Shadow Buffer` の該当差分をハイライトしつつ、ユーザーが複数 `focus_id` をまとめて `Accept` する操作を行った場合は `MCP Router` に `Intent Request` として `approval_unit=parent_intent_id` を付加することを **SHOULD** とする。`Intent Request` の `Audit Event` にも `Relevance Intent` の `semantic_score`/`focus_ids`/`parent_intent_id` を含め、`Command Hub` の `Backoff` 状態でも `related_audit_event_id` で進行中の再スコアリングを追跡できるようにすることを **MUST** とする。
+
+`Relevance Intent` から派生した `Intent Request` によって `Shadow Buffer` に差分が登録された場合、各 `focus_id` には `Audit Event` の `result=queued`/`pending`/`accepted` などのステータスとともに、元の `parent_intent_id` を `related_event_id` で記録することを **SHOULD** とする。これにより `SessionSnapshot` が `Relevance Intent` を再開時に再構築しやすくなるほか、`Command Hub` の UI が `Audit Event` による監査と整合しつつ再試行や `Partial Accept` などの分岐を追跡できる。
 
 `Semantic Search` の再評価は `Local RAG` の 5 秒ルール（ファイルシステムイベントからの部分更新）に従って実行し、再スコアリングの進行中は `Global Search` パネルに `Re-scoring…` ラベルを表示して直前の結果を保持することを **MUST** とする。`nue-semantic` が意味的解決に至らない場合は `Command Hub` で外部エージェント提案を `requires_user_consent` で行い、結果が存在しなければ「この意図は現行コンテキストで解決不能」と表示することを **SHOULD** とする。
 
