@@ -70,7 +70,7 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
 
 これらのカラールールは `nue-ui` の GPUI 定義に反映し、パレットを変更する場合はいずれの用途が影響を受けるかを追跡できるようデザインシステムに記録することを **SHOULD** とする。
 
-高彩度制限や色覚制約など `color-limited mode` を有効化するトリガー（例: ユーザーのアクセシビリティ設定、OS のハイコントラスト状態）については本仕様に明文化されておらず、`specs/ask.md` Q29 で意思決定予定である。このため、UI は色に依存しない `Glyph`/ラベル/テキストを常時併用する設計とし、トリガーが確定した際には当該モードで必要な代替表現へ即時切り替えできる柔軟性を持たせることを **MUST** とする。
+アクセシビリティや高彩度モードといった特別対応は、本アプリケーションが開発者個人の利用を想定しているため、主要仕様としては取り扱わない。ただし、暫定的な検討内容やトリガー候補は `specs/spec_accessibility.md` でまとめており、必要に応じてそちらを参照する。
 
 ### 3.2 ワークスペース・レイル (Slack-like Switcher)
 
@@ -146,7 +146,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 - **更新トリガー**: エディタのアクティブバッファ、カーソル位置、`Shadow Buffer` 内の差分および `Command Hub` の現在候補が変更された際、`Structure Path` は 100ms 以内に再評価され、存在する差分・承認待ち・実行中のエージェントフローを反映した状態にすることを **SHOULD** とする。
 - **表示/マーキング**: 各セグメントには `Agent Status` に応じた `Glyph` と `Color` を付与する。AI 差分を含むセグメントは `Neon Cyan` のパルス、承認待ちは `Solar Flare` のドット、Git 差分のみは `Midnight Glass` の下線、エラー状態は `Cyber Magenta` のバッジ、といった視覚的強調を付ける。高彩度が困難なモードでは `Glyph` とラベルで同じ意味を伝えることを **MUST** とする。
-- **相互作用**: セグメントクリックで `Legacy View`/`Command Hub` の `Navigation Mode` が対応箇所へジャンプし、Shift+クリックなどの複数選択操作で `Command Hub` に `Intent Request` を出して範囲選択状態を生成することを **SHOULD** とする。キーボードショートカット（`Alt+1` ～ `Alt+5` など）も提供し、スクリーンリーダー向けに完全なパステキストをアノテートすることを **SHOULD** とする。
+- **相互作用**: セグメントクリックで `Legacy View`/`Command Hub` の `Navigation Mode` が対応箇所へジャンプし、Shift+クリックなどの複数選択操作で `Command Hub` に `Intent Request` を出して範囲選択状態を生成することを **SHOULD** とする。キーボードショートカット（`Alt+1` ～ `Alt+5` など）も提供する。
 - **Shadow Buffer との連携**: `Structure Path` は `Approval Unit`（ファイル/ハンク）ごとの `Audit Event` を参照し、未承認のパスに `Solar Flare` の点滅、承認済のパスには `Electric Lime` のチェックマークを表示する。`Partial Accept` で分割された範囲にはサブセグメントを展開して `related_event_id` を追跡できる形にすることを **SHOULD** とする。
 - **Command Hub / Minimap との同期**: `Command Hub` が `Backoff State` 中は `Structure Path` が最終確定候補を保持しつつ `Re-scoring…` ラベルを表示し、`Minimap` の `focus_id` と連動して現在の差分セグメントを強調表示することを **SHOULD** とする。差分の承認/拒否後は 50ms 以内にパス上の状態を更新し、UI の整合性を維持することを **MUST** とする。
 
@@ -161,7 +161,6 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `Smart Gutter` は、`Git` 差分（追加/変更/削除）がある行に対して `Midnight Glass` の図形（追加: 上向き三角、削除: 下向き三角、変更: 横のバー）を描き、`Shadow Buffer` の AI 差分表示と重なった場合は `AI` 表示を優先しつつ `Git` 残差として細い輪郭を並列表示することで、同一行の両要素を区別できるようにすることを **SHOULD** とする。
 - `Smart Gutter` のインジケーターをユーザーがクリックまたはキーボードフォーカスした際、`Command Hub` の該当 `Approval Request` を呼び出し、`Shadow Buffer` エントリの差分詳細（変更前後のスニペット・`Audit Event` 参照）と共に `Command Hub` 内で `Accept` を実行できる操作フローを **MUST** 提供する。`Smart Gutter` が `Command Hub` へ渡す `approval_unit`/`focus_id` は `Audit Event` の `related_event_id` と一致させ、クリック後 50ms 以内に `Command Hub`/`Minimap`/`Structure Path` のハイライト状態を更新することを **SHOULD** とする。
 - `Smart Gutter` は `Audit Event` の `result=pending` / `result=queued` など、まだ `Approval` が完了していない行について `Neon Cyan` の進捗リング（1行につき最大 2 本）を添えて `Minimap` の `focus_id` を追跡し、`focus_id` が変更された際は該当行の `Smart Gutter` 表示を再描画して `Command Hub` の `Backoff State` を反映することを **SHOULD** とする。`Audit Event` で `resolution_hint` が更新された場合は、`Smart Gutter` のツールチップで具体的な修正設定キー/ポリシー ID を表示することを **SHOULD** とする。
-- `Smart Gutter` は、行番号上に表示される補助アイコン（例: `AI Pulse`/`Git Delta`）に `glyph`/`tooltip` を持たせ、アクセシビリティ要件に基づき `Glyph` を `Agent Status` ごとに一意化することを **MUST** とする。高彩度が利用できないモードでは `Glyph` の形状変化とテキストラベル（例: `AI`/`Git`/`Error`）で状態を伝えることを **SHOULD** とする。
 
 `Smart Gutter` の仕様は `specs/glossary.md` に新しい用語として定義し、`specs/backlog.md` に `Smart Gutter` タスクの解決と `Command Hub`/`Shadow Buffer` との依存関係を追記しておくことを **MUST** とする。
 

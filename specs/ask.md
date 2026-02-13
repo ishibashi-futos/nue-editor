@@ -73,26 +73,16 @@
 - [x] Q19. `Shadow Buffer` の `Reject`/`Partial Accept`/`Revert` と各 `Approval Unit` の関係や、`Audit Event` の記録項目、UI 連携をどこまで保証すべきかが未定義です。特に非連続行の `Partial Accept` や逆方向差分の `Revert` 後の再承認の扱いを決めたいです。
   - Answer: `spec-nue.md` Sec.4.2.1/4.2.2 で差分操作ごとに許容される `approval_unit`（`workspace`/`file`/`hunk`）および `result`/`focus_id`/`related_event_id`/`approved_ranges`/`reverted_event_id` 等の `Audit Event` フィールドを列挙し、`Partial Accept` の非連続レンジ・再生成 `focus_id`、`Revert` の逆向き差分と `related_event_id` で UI との整合を保持するフロー、`Reject` の再承認トリガーと `MCP Router` のメッセージ返却を RFC 2119 で規定した。
 
+- [x] Q29. 高彩度制限や色覚制約時に `color-limited mode` を自動検出して UI の描画レイヤーを `Glyph`/ラベル中心に切り替えるトリガーや、そのモード固有の描画・通知ルールが未定義です。OS 設定やユーザーのアクセシビリティ設定との連携をどう扱うべきか教えてください。 (`spec-nue.md` Sec.3.1.2)
+  - Answer: こちらも個人利用前提で設計しており、複雑な自動モードや OS 連携は導入しません。必要であれば過去の候補（`ui.accessibility.high_contrast` フラグや `Command Hub` からのトグルなど）を `specs/spec_accessibility.md` で参照し、手動で切り替えるようにします。
+
+- [x] Q17. `Agent Status` や差分/承認の可視化 (`spec-nue.md` Sec.3.1.2) が現在は色とアニメーション（例: `Solar Flare` の点滅、`Cyber Magenta` の明滅）に依存しており、色覚多様性・ハイコントラストモード時の識別方法が未定義です。色以外のパターンや形状、テキストを併用する必要がありますか？
+  - Answer: 本アプリは個人利用を前提としており、アクセシビリティ対応を仕様の主要スコープには含めません。必要なときに過去の検討結果を参照できるよう、色/シンボル/差分マーカーの候補は `specs/spec_accessibility.md` に暫定的な記録として移しました。
+
 ## Open
 
 - [ ] Q15. 外部エージェント（例: `cloud_lambda_v2`）への問い合わせを `requires_user_consent` かつ `Audit Event` でのみ提案する場合、どのようなプロファイル名/リソースを許可し、誰がその一覧を管理するのか未定義です。提案可能な外部エージェントの最小限の分類や管理者承認フローを決める必要があります。 (`spec-nue.md` Sec.6.1.2)
   - Answer: 外部エージェントへの問い合わせはNue経由では行わない。あくまで、Nueのターミナルを経由して指示はユーザーが直接エージェントに出す。
-
-- [ ] Q17. `Agent Status` や差分/承認の可視化 (`spec-nue.md` Sec.3.1.2) が現在は色とアニメーション（例: `Solar Flare` の点滅、`Cyber Magenta` の明滅）に依存しており、色覚多様性・ハイコントラストモード時の識別方法が未定義です。色以外のパターンや形状、テキストを併用する必要がありますか？
-  - Answer:
-    - ワークスペース・レイルのバッジやパレット内の状態表示には、色の変化に加えて固有の**「シンボル（Glyph）」**を付与します。
-      - 状態 (Status),色 (Color),シンボル (Glyph),動き (Motion)
-      - Idle,Dimmed,○ (Empty Circle),静止
-      - Busy,Neon Cyan,◈ (Diamond),回転 / パルス（緩やか）
-      - Waiting,Solar Flare,▲ (Triangle),点滅（1Hz）
-      - Error,Cyber Magenta,✖ (Cross),振動（高周波）
-    - 差分（Gutter）の可視化
-      - 未承認 (AIによる追加): Solar Flare（イエロー）かつ 「太い実線」。
-      - 承認済み / Git管理下: Midnight Glass（グレー）または透明かつ 「細い実線」。
-      - 削除箇所: 該当行のガターに 「小さな三角形のマーカー（◀）」 を表示。
-    - ハイコントラストは今のところ趣旨と合わないので採用しません。
-    - アクセシビリティ対応についても基本的に不要（対象外）とします。
-    - あくまで私個人が気持ちよく使うためのツールです。
 
 - [ ] Q18. `Galaxy View` が 500 ノード超で詳細度を下げる際、どのノード/エッジを折りたたみ・簡略化するかや、ユーザーのフォーカスをどう扱うか、具体的なヒューリスティックや操作仕様が未定義です。表示維持/削減の基準、あるいは手動制御の可否を決める必要があります。 (`spec-nue.md` Sec.3.3)
   - Answer: ユーザーの「現在の関心事」を軸に、表示対象を自動的に選別して欲しい。
@@ -128,9 +118,3 @@
   - Answer: 「揮発的なセッション・スコープ」 と 「永続的な設定・スコープ」 に分離して管理したい。
     - 揮発的なセッション・スコープ：検索時に、除外するディレクトリを正規表現パターンで入力・指定できる
     - 永続的な設定・スコープ：グローバル・ワークスペースごとに設定として持たせることができる
-
-- [ ] Q29. 高彩度制限や色覚制約時に `color-limited mode` を自動検出して UI の描画レイヤーを `Glyph`/ラベル中心に切り替えるトリガーや、そのモード固有の描画・通知ルールが未定義です。OS 設定やユーザーのアクセシビリティ設定との連携をどう扱うべきか教えてください。 (`spec-nue.md` Sec.3.1.2)
-  - Answer: 個人利用想定しているため、複雑な仕様は不要
-    - 方式: OS自動検出は行わず、nue-config の設定値のみで制御します。
-    - 設定キー: ui.accessibility.high_contrast: bool (default: false)
-    - UIアクセス: Command Hub から > Toggle High Contrast Mode で即座にオンオフできるようにします。
