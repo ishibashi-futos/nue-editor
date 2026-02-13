@@ -114,16 +114,16 @@ Nueは、Slackのようなマルチワークスペース管理を最上位に据
 
 `Shadow Buffer` はエージェントが行った差分編集を本バッファにマージする前に保持する構造体であり、各差分はファイル単位と `Workspace Session` 単位の両方で区分される。各差分には、発生時刻、差分の範囲、発行元エージェント、現在の `Agent Status` を付与することで、レビューと追跡が可能である。
 
-1. **承認単位**  
+1. **承認単位**
    初期リリースでは `Workspace Session` 単位の一括 `Accept` と `ファイル単位` `Accept` をサポートすることを **MUST** とし、続く項で `Reject`/`Revert`/`Partial Accept` の挙動を定義する。
 
 2. **承認後の反映**
    `Accept` が行われると、`Shadow Buffer` の該当差分は `Editor Core` の本バッファへマージされ、`UI View` への更新イベント（差分の範囲・Agent Status）と `Audit Event` の両方を生成する。差分はマージ後に `Shadow Buffer` から削除され、ストレージに永続化されない。
 
-3. **レビュー情報**  
+3. **レビュー情報**
    `Shadow Buffer` の差分は `Galaxy View` と `Legacy View` の両方で列挙可能とし、特に `Galaxy Feedback` は対象ノードを `彗星` でハイライトし、設定された `Agent Status` に応じた輝度で表示する。差分ごとのメタ情報（例: `Approval Unit`、`Execution Context`）を UI で参照できること。
 
-4. **追加承認操作**  
+4. **追加承認操作**
    これらの操作は v1.0 以降の段階的拡張項目とする。ToDo セクション（Sec.8）で `Reject`/`Partial Accept`/`Revert` の差分状態遷移と `Audit Event` 記録ルールを整理し、実装段階で詳細化する。
 
 ### 4.3 ターミナルエミュレーター最小要件
@@ -168,7 +168,7 @@ Nueは、Slackのようなマルチワークスペース管理を最上位に据
 
 ### 5.1 Source hierarchy and merge priority
 
-1. **環境変数 (Priority: 1)**: `NUE_AGENT__SAFETY__AUTO_ACCEPT=true` など。起動時に読み込まれるため、`App Host` は再評価のたびにこのスコープを最優先でマージする。
+1. **環境変数 (Priority: 1)**: `NUE_AGENT_SAFETY_AUTO_ACCEPT=true` など。起動時に読み込まれるため、`App Host` は再評価のたびにこのスコープを最優先でマージする。
 2. **ワークスペース設定 (Priority: 2)**: `.nue/config.yaml`（プロジェクト固有）。ファイル更新を検知したタイミングで再読み込みする。
 3. **グローバル設定 (Priority: 3)**: `~/.config/nue/config.yaml`（ユーザーの基本設定）。同一ユーザーの複数ワークスペースにまたがる変更を検知する。
 4. **デフォルト (Priority: 4)**: システム内蔵の初期値。常に最後のフォールバックとして保持される。
