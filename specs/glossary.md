@@ -17,6 +17,7 @@
 | Legacy View | UI | ディレクトリツリー中心の階層表示ビュー。 | 物理構造把握向け。 |
 | Galaxy View | UI | `v1.0` 以降で導入される依存関係ベースのグラフ表示ビュー。LSP 依存関係をノード/エッジで表現し、AI が触れたノードは `彗星` で強調し、影響範囲は `衝撃波` で伝播を可視化する。 | Legacy View とは役割を明確に分離し、最大 500 ノードまで描画した状態で 45fps 以上を維持し、WCAG AA 相当のアクセシビリティを満たす。 |
 | Focus Score | UI メトリクス | Galaxy View がノードの優先描画を決めるために算出する段階的スコア。P0（AI Activity）〜P3（Context）で構成し、スコアの低いノードは集約対象となる。 | `spec-nue.md` Sec.3.3.1 で 500 ノード超時の描画維持に使用される。 |
+| Focus ID | データ | `Minimap`/`Structure Path`/`Smart Gutter`/`SessionSnapshot` で同じ差分や行を強調するために共有される識別子。現行では粒度・一意性・更新タイミングが未定義なため、`specs/ask.md` Q25 の確定を待つ必要がある。 | `spec-nue.md` Sec.3.5.1/3.6/3.7/7.1 に関連記述があり、決定後は各ビューのフォーカス同期ルールと `Audit Event` の `focus_id` 設定を含めて更新する。 |
 | Nebula | UI | 同一ディレクトリ内の低優先度ノード群をまとめた高レベル集合体。 | Galaxy View の 500 ノード超時に `Focus Score` で選別されたノードを代替表示する「星雲」クラスタ。 |
 | Workspace Rail | UI | ワークスペース切替と状態表示を担う左レイル UI。 | Slack-like は説明語で非用語。 |
 | Command Hub | UI | `Cmd + Shift + P` / `Ctrl + Shift + P` で開くモーダル型コマンドパレット。AIと人間が意図を共有し、MCP Tool呼び出しを起点としてショートカット/履歴/自然言語候補を表示する。 | `spec-nue.md` Sec.6.1 で構造とモードを定義する。 |
@@ -43,6 +44,7 @@
 | Reject | 操作 | Shadow Buffer 上の差分をユーザーが却下し、該当変更を破棄する操作。 | `spec-nue.md` Sec.4.2.1 で `Audit Event` 確認後にエージェントへ再生成を促すフローを定義。 |
 | Revert | 操作 | 過去に `Accept` した差分を取り消し、逆向きの差分を Shadow Buffer へ生成する操作。 | `spec-nue.md` Sec.4.2.1 で `result=revert` の `Audit Event` と再承認ループを規定。 |
 | Approval Unit | 操作 | 変更承認の粒度（例: 一括、ファイル単位、ハンク単位）。初期リリースは `Workspace Session` 単位の一括 `Accept` と `ファイル単位 Accept` を提供し、`Partial Accept`/`Reject`/`Revert` は未実装。 | 将来的にハンク単位など細分化できる。 |
+| Approval Request | UI | `MCP Router` が `requires_user_consent` の呼び出しに対して `policy_id`/`tool`/`argument`（ハッシュ）/`execution_context` をまとめて `Shadow Buffer` に提示する UI 操作で、ユーザーが `Accept` を押すことで再評価が触発される。 | `spec-nue.md` Sec.4.1.3/4.2.2 で `Shadow Buffer` との整合と `Audit Event` の `approval_state=pending` 対応を定義しており、`Command Hub`/`Smart Gutter`/`Structure Path` が該当 `focus_id` を引用してハイライトする。 |
 | Approval State | 状態 | `MCP Router` のポリシーが指す承認条件。 | `auto_allow`/`requires_user_consent`/`blocked` のいずれか。`requires_user_consent` は Shadow Buffer 承認の進行と連動し、`blocked` は常時拒否。 |
 | Global Config | 設定 | ユーザー全体に適用される設定。 | `~/.config/nue/config.yaml`。 |
 | Workspace Config | 設定 | ワークスペース固有設定。 | `.nue/config.yaml`。 |

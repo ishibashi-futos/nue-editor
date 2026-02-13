@@ -123,3 +123,28 @@
     - Internal Validation (Command Hub): 生成された intent が、現在のコンテキスト（エディタがフォーカスされているか等）で実行可能かをチェック。
     - Candidate Presentation (UI): パレットに「アクションの候補」として表示。AIの確信度が高い場合は、決定打としてハイライト。
     - Local Execution (nue-app): ユーザーが選択した瞬間、システム内の Dispatcher が該当する Rust 関数を直接実行。
+
+- [ ] Q25. `Minimap`/`Structure Path`/`Smart Gutter`/`SessionSnapshot` が共通で参照する `focus_id` の粒度（行/ハンク/差分）と一意性、`Shadow Buffer` エントリとの対応方法が未定義です。各 UI が同一 `focus_id` を参照し続ける運用を可能にする識別子の生成・更新ルールと、重複が発生した場合の整合性確保策を決める必要があります。 (`spec-nue.md` Sec.3.5.1/3.6/3.7/7.1)
+  - Answer:
+    - 粒度: 「Hunk（差分塊）」 単位を基本とします。行単位では細かすぎて同期負荷が高く、ファイル単位では解像度が不足するためです。
+    - 生成ルール: file_path_hash + hunk_start_line + timestamp をベースに生成される ULID（ソート可能な一意ID）を使用します。
+    - 一意性の担保: Shadow Buffer に差分が登録された瞬間に focus_id が発行され、その差分が Accept または Reject されるまで生存します。
+
+- [ ] Q26. `Sleep Mode` で `ConfigChangeEvent` を保留している間、そのイベントをどの順序・頻度で再送するか、保留キューの上限や破棄判断、復帰後の適用タイミング（先頭から順に、最新のみ、優先度付きなど）を定義していません。`App Host` が Sleep 中に得た変更をどのように再評価し、失敗時にどうユーザーへ通知するかを明確にしてください。 (`spec-nue.md` Sec.5.2/5.3/7.2)
+  - Answer: セッションが Sleep 中に発生した設定変更は、「最新状態への収束」 を優先し、無駄な再計算を排除します。
+    - 保留キューと更新ルール
+      - 戦略: 「LWW (Last Write Wins) + スコープ合算」。
+      - Sleep 中、App Host は変更された hot_reload_scope を累積します。例えば、editor 設定が3回変更されても、保持するのは 最新の revision と 変更されたキーの和集合 のみです。
+      - キュー上限: 無制限（単一の最新状態に集約されるため、メモリを圧迫しません）。
+    - 復帰後の適用タイミング
+      - タイミング: セッションの Wake Up 処理（リソースロード）の直後、かつユーザーの入力を受け付ける 前 に一括適用。
+      - 再評価: 復帰時に現在のファイルツリーと設定の整合性をチェックし、失敗した場合は Notification System を通じて「一部の設定（例: 削除されたディレクトリの除外設定）を適用できませんでした」と Cyber Magenta（エラー色）のバナーで通知します。
+- [ ] Q27. Intent/Smart Search の候補が複数ファイル・複数ハンクにまたがる場合、どの `Approval Unit` を選び、`Shadow Buffer` の差分と `Audit Event` の `related_event_id`/`focus_id` をどう更新するのか、分割すべきか一括で扱うべきかといったポリシーが未定義です。適正なハンドリングを決める必要があります。 (`spec-nue.md` Sec.4.2.1/6.1.1/6.2.2)
+  - Answer:
+    - Approval Unit の分割ポリシー
+      - 原則: 「論理的最小単位（Atomic Intent）」 で一括管理します。
+      - 一つの自然言語入力（Intent）から派生した複数のファイル変更は、同一の parent_intent_id を共有します。
+      - UI 提示: Command Hub では一括して「5箇所の変更を適用」と表示しますが、Shadow Buffer 上では個別の focus_id を持ち、ユーザーは「一括 Accept」または「個別の Hunk 単位の Reject」を選択可能です。
+    - 識別子の更新ルール
+      - 関連性: Audit Event には parent_intent_id と、ぶら下がる全ての focus_id のリストを記録します。
+      - 部分的承認時の挙動: 5つの変更のうち3つだけ Accept した場合、残りの2つは Shadow Buffer に残り続け、focus_id は維持されます。Audit Event には result: partial_accepted として記録され、related_event_id を通じて元のインテントと紐付けられます。

@@ -120,6 +120,10 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `Minimap` のクリック/タップ操作は `Command Hub` の `Approval Requests` と `Legacy View` のツリーを連動させ、該当差分を開いて確認・承認できるようにすることを **MUST** とする。
 - `Minimap` の表示更新は `Audit Event` (`type=minimap.overlay` など) を発行し、検索/ビルド/差分イベントが UI へ提示されたことを記録して監査できるようにすることを **SHOULD** とする。
 
+#### `focus_id` 連携
+
+`Minimap`、`Structure Path`、`Smart Gutter`、および `SessionSnapshot` は `focus_id` をキーとして同一の差分/行を共通表示・ハイライトすることを前提にしているが、その生成ルール・一意性・更新タイミングが現時点で **未定義** であり、整合性の担保方法が未確定である。焦点識別子のスコープや `Shadow Buffer` エントリとの対応を確定させるため、`specs/ask.md` Q25 を参照し、この項目が決定され次第本章を更新する。
+
 ### 3.6 Structure Path
 
 `Structure Path` はエディタ上部に常設される階層ナビゲーションバーであり、「Project > Folder > File > Class/Module > Method/Function」のパスを常に表示し、変更のコンテキストと承認状態を一目で把握できることを **MUST** とする。
@@ -385,7 +389,12 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `Backoff` 状態では、候補一覧に `Re-scoring…` もしくは `awaiting nue-semantic` などの明示的なラベルを付与し、最後に生成された候補と所要時間・進捗を表示することで遅延の因果をユーザーへ伝えることを **SHOULD** とする。
 - 同時に、`Command Hub` は `Action Mode` か `Navigation Mode` への移行手順（例: `>` でアクションを記述、`:` で候補を絞る）をヒントとして表示し、遅延が長引く場合はユーザーが明示的なコマンド入力へフォーカスを移せるよう案内することを **SHOULD** とする。
 - 各候補には発行元（AIエージェント/ユーザー）、必要な `MCP Tool`、`Approval State`（`auto_allow`/`requires_user_consent`/`blocked`）を付与し、選択時に即座に `Audit Event` を作成することを **SHOULD** とする。
+
 - 選択された候補は `MCP Router` へ `Intent Request` を送信し、`approval_state` に応じて自動的に処理されるので、`Command Hub` は `Audit Event` 経路を共有して `Shadow Buffer` との連携を疎通させることを **SHOULD** とする。
+
+#### インテント候補の Approval Unit
+
+自然言語モードで生成された `Intent Request` が複数ファイルや複数ハンクを含む場合、`Shadow Buffer` および `Audit Event` 側でどの `Approval Unit`（Workspace/ファイル/ハンク）を用いて差分を記録し、`related_event_id` や `focus_id` をどの粒度で更新するかは現時点で **未定義** である。候補の分割・集約や `Command Hub` への表示の粒度を決めるため、この仕様項目を `specs/ask.md` Q27 で検討中とし、回答が得られた段階で本節を更新することとする。
 
 ### 6.1.2 Intent/Smart Search のコンポーネント
 
@@ -482,6 +491,8 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 3. `Workspace Session` は `MCP Router`、`Editor Core`、`Terminal Emulator`、`nue-semantic` などの実稼働コンポーネントを停止し、`ToolExecutionState`/`ToolRequestQueue` を `Paused` 状態に移行させる。`MCP Router` は `run_command` を拒否し、差分の生成を停止することを **MUST** とする。
 4. `App Host` は当該 `Workspace Session` を `State=Sleep` としてマークし、`Workspace Rail` 上に Sleep バッジ（`Sleeping`）を表示する。睡眠中の `Command Hub` は `Away` バックドロップを表示し、`Audit Event` への `state=sleeping` 属性を持たせることを **SHOULD** とする。
 5. Sleep 中は当該セッションに対する `ConfigChangeEvent` の配信は保留され（`hot_reload_scope` だけでなく `config_revision` も更新を保留）、復帰時にまとめて適用することを **SHOULD** とする。
+
+   Sleep モード中に蓄積された `ConfigChangeEvent` をどのようにキューイング/上書き/破棄するか、復帰後の適用順序や失敗時の再送をどう扱うかは現在 **未定義** のため、`specs/ask.md` Q26 で検討している。回答が得られ次第、本節を補完する。
 
 #### 復元
 

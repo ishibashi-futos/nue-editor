@@ -91,3 +91,15 @@
 
 
 ## ToDo
+
+- [ ] P2: `focus_id` の生成/伝播ルールを確定する
+  - Before: `Minimap`/`Structure Path`/`Smart Gutter`/`SessionSnapshot` が `focus_id` を参照するが、粒度や一意性・更新タイミングが未定義で UI 整合の担保ができない。
+  - After: `specs/spec-nue.md` Sec.3.5.1/3.6/3.7/7.1 に `focus_id` の定義を追加し、`specs/ask.md` Q25 の回答にもとづいて参照実装が共有できる。
+
+- [ ] P2: Sleep 中の `ConfigChangeEvent` 保留の振る舞いを仕様化する
+  - Before: `Sleep Mode` では一括保留しているが、蓄積されたイベントのキュー順序・上限・復帰時の適用順序が未定義で再起動後の状態差異が生じる可能性がある。
+  - After: `specs/spec-nue.md` Sec.7.2 に保留キューの耐性・適用順序・破棄条件を明記し、`specs/ask.md` Q26 の決定に従って `App Host` の再評価フローを統一する。
+
+- [ ] P2: Intent 候補からの `Approval Unit` 選択ポリシーを確定する
+  - Before: 自然言語モードで複数ファイル/ハンクを含む候補が生成される場合の `Approval Unit` や `Audit Event` への紐づけ、`Shadow Buffer` への差分記録粒度が未定義で整合性が取れていない。
+  - After: `specs/spec-nue.md` Sec.6.1.1/6.2.2 に `Approval Unit` ポリシーを追加し、`specs/ask.md` Q27 の解に基づいて UI と `Audit Event` の整合性が保証される。
