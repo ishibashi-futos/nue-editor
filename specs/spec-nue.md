@@ -400,6 +400,18 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `Intent/Smart Search` は候補の選択時に `MCP Router` への `run_command` や `apply_patch` の呼び出しを発生させる実行プランを返し、その過程で `Shadow Buffer` の差分として登録されるエントリと整合することを **MUST** とする。
 - `Local RAG` に使うインデックスはファイルシステムの変更（追加/削除/リネーム）を検知した後 5 秒以内に部分更新し、入力ミスや類似語を許容するキーワードマッチを備えることを **SHOULD** とする。
 
+### 6.1.3 `nue-semantic` のインスタンスとワークスペース分離
+
+`nue-semantic` は 450MB 以上に及ぶモデル本体を含むため、`App Host` はアプリ全体で **ただ一つのインスタンス** を起動し、すべての `Workspace Session` がこの共有インスタンスを参照することを **MUST** とする。複数のインスタンスを同一プロセス内で生成しようとする試みはリソース制限違反として拒否され、その事象は `Audit Event` (`type=semantic.instance_violation`) に記録することを **SHOULD** とする。
+
+共有インスタンスは `SemanticContextManager`（名前は実装自由）を介して `Workspace Session` ごとに `SemanticContextHandle` を発行し、次の責務を果たすものとする。
+
+- 各 `Workspace Session` は `SemanticContextHandle` を通じて自身に紐づく `Local RAG` インデックスのバージョン、プロンプトヒストリ、`Relevance Intent` の Pending 状態を保持し、**他のセッションと一切の情報を共有しない**ことを **MUST** とする。
+- `SemanticContextHandle` は `workspace_session_id` をキーとし、`nue-semantic` へ渡すリクエストに必ず `semantic_context_id` と `local_rag_revision` を付与する。これにより `nue-semantic` はワークスペース単位のセッションを識別し、コンテキストの汚染を防ぐことを **SHOULD** とする。
+- `App Host` は `nue-semantic` へのリクエストをスロット制御（例: Worker Pool/ファイバー）で調停し、同時実行スロットを `semantic.concurrent.requests` などの設定で制限する（デフォルト 4）。`Workspace Session` は `SemanticContextHandle` を介して順次リクエストを送信し、スロットが満杯の場合は `Command Hub`/`Smart Gutter` へ `Backoff` ステータスを提示することを **SHOULD** とする。
+
+`nue-semantic` のインスタンスは `hot_reload_scope=semantic` を含む `ConfigChangeEvent` 時、または `App Host` の再起動時に再初期化される。再起動前の `SemanticContextHandle` に関連する `local_rag_revision`、`intent_history_id`、`pending_relevance_intents` は `Command Hub` の `SessionSnapshot`（Sec.7.1）へ `semantic_context_state` として記録し、復元後に `nue-semantic` へ再登録することを **SHOULD** とする。`SessionSnapshot` がこの情報を持たない場合でも、`App Host` は `nue-semantic` に空のコンテキストを再利用させ、少なくとも `workspace_session_id` で一意にトレースできるようにすることを **MUST** とする。
+
 以上により `Command Hub` が意図を中心とした起点となり、AIエージェントと人間が共に進化するループの起点として機能する。
 
 ## 6.2 グローバル検索とセマンティック検索統合

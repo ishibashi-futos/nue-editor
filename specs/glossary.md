@@ -30,6 +30,9 @@
 | Agent Status | 状態 | エージェント実行状態を示す列挙値。 | `Busy`/`Waiting`/`Error`/`Idle`。 `spec-nue.md` Sec.3.1.2 では各状態を `Neon Cyan`/`Solar Flare`/`Cyber Magenta`/`Dusty Grey` などで色/アニメーション表現するルールを定義し、`Workspace Rail`・`Command Hub` などに一貫して反映することを要求している。 |
 | Intent / Smart Search | 機能 | `Command Hub` の自然言語入力モードで、`nue-semantic` を中心とした候補推論により `MCP Tool` や UI アクションを提案する。 | 100ms以内の候補生成と、発行元・Approval Stateを付与するプロセスを含む（Sec.6.1.1）。 |
 | nue-semantic | コンポーネント | Intent/Smart Search を構成するローカル生成AIエンジン。Phi 等の SML モデルをバインドし、Intent Resolver・Local RAG・Policy-Aware Scoring を組み合わせて候補を出す。 | 外部 API には依存せずオフライン実行を想定（Sec.6.1.2）。 |
+| SemanticContextManager | コンポーネント | `App Host` が `nue-semantic` の単一インスタンスを管理するファサードで、`SemanticContextHandle` を通じてワークスペースごとのコンテキストを分離する。 | `spec-nue.md` Sec.6.1.3 で共有インスタンス・スロット制御・再初期化時の `semantic_context_state` 登録を RFC 2119 で規定。 |
+| SemanticContextHandle | データ | `SemanticContextManager` が生成するハンドルで、`workspace_session_id`/`local_rag_revision`/`semantic_context_id` を `nue-semantic` のリクエストに付加することで他セッションとの汚染を防ぐ。 | `spec-nue.md` Sec.6.1.3 では `Local RAG` 更新・`Relevance Intent` の Pending 状態管理・`session_snapshot` への状態保存を義務付けている。 |
+| semantic_context_state | データ | `SessionSnapshot`（Sec.7.1）が記録する `nue-semantic` 側の状態情報（`intent_history_id`/`pending_relevance_intents` など）で、再起動・Wake up 後に `SemanticContextHandle` へ再登録するために利用される。 | `spec-nue.md` Sec.6.1.3 で `App Host` に一般化された再登録要件を記載。 |
 | Intent Resolver | コンポーネント | `nue-semantic` のサブモジュールで、自然言語入力をミリ秒スケールでトークナイズし、MCP Tool や UI アクションにマッピングする推論エンジン。 | `approval_state` や context を含む実行プランを返す必要がある。 |
 | Local RAG | コンポーネント | `nue-semantic` が保持する、プロジェクトファイル名/関数名/設定名のベクトル/重み付きインデックス。曖昧な入力を意味的に関連する候補に橋渡しする。 | ファイルシステム変更時に 5 秒以内で更新。 |
 | Policy-Aware Scoring | 機能 | `nue-semantic` が `Authorization Policy` の `argument_constraints`/`execution_context` を評価し、実行可能な候補を上位にソートする評価機構。 | 実行可能性と `approval_state` を加味した優先順位付けを実現する（Sec.6.1.2）。 |

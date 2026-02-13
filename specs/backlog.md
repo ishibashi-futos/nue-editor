@@ -2,6 +2,10 @@
 
 ## Resolved
 
+- [x] P1: `nue-semantic` のインスタンス管理を明文化
+  - Before: `nue-semantic` のシングルトン運用が ToDo で残っており、実装規約やセッション分離の方法が未定義だった。
+  - After: `spec-nue.md` Sec.6.1.3 で `App Host` が共有インスタンスを起動し、`SemanticContextManager`/`SemanticContextHandle` を経由してワークスペース単位の `Local RAG` と `Relevance Intent` を隔離することを RFC 2119 で記載し、`SessionSnapshot` への `semantic_context_state` 登録も要求した。
+
 - [x] P2: `Galaxy View` の成立条件を定義する
   - Before: レイアウト・更新頻度・性能上限・アクセシビリティ基準が未定義。
   - After: `v1.0` 以降での導入タイミング・500 ノード時の 45fps 性能 budget・アクセシビリティ要件などを `spec-nue.md` に記載した。
@@ -87,8 +91,3 @@
 
 
 ## ToDo
-
-- [ ] P1: `nue-semantic` のシングルトン運用
-  - メモリ爆発を抑えるため、知能レイヤーはアプリ全体で唯一のインスタンスを共有する。
-  - リクエストごとに、nue-semantic は参照する RAG インデックス（ベクトルデータ）を切り替えるが、モデル本体（450MB+）はメモリに常駐させたまま使い回す。
-  - インスタンスは共通だが、推論時のコンテキスト（プロンプトや一時メモリ）はワークスペースごとに分離され、プロジェクト A の情報がプロジェクト B の提案に混入することを防ぐ。
