@@ -68,6 +68,9 @@
 - [x] Q27. Intent/Smart Search の候補が複数ファイル・複数ハンクにまたがる場合、どの `Approval Unit` を選び、`Shadow Buffer` の差分と `Audit Event` の `related_event_id`/`focus_id` をどう更新するかを決めたか？
   - Answer: `spec-nue.md` Sec.6.1.1 で `parent_intent_id` をもつ **Atomic Intent** に基づいて候補を集約しつつ、`focus_id` 単位の `Approval Unit` を Shadow Buffer に個別記録するルールを RFC 2119 形式で記述した。Command Hub/UI は「5 箇所の変更」などの集約ラベルを表示しながら個別ハンクの確認・承認も可能にし、`Audit Event` には各 `focus_id` のリストと `related_event_id=parent_intent_id` を含めて部分承認/拒否が追跡できる状態にした。これにより単一の自然言語インテントに対する UI、Shadow Buffer、監査の整合性が保証される。
 
+- [x] Q19. `Shadow Buffer` の `Reject`/`Partial Accept`/`Revert` と各 `Approval Unit` の関係や、`Audit Event` の記録項目、UI 連携をどこまで保証すべきかが未定義です。特に非連続行の `Partial Accept` や逆方向差分の `Revert` 後の再承認の扱いを決めたいです。
+  - Answer: `spec-nue.md` Sec.4.2.1/4.2.2 で差分操作ごとに許容される `approval_unit`（`workspace`/`file`/`hunk`）および `result`/`focus_id`/`related_event_id`/`approved_ranges`/`reverted_event_id` 等の `Audit Event` フィールドを列挙し、`Partial Accept` の非連続レンジ・再生成 `focus_id`、`Revert` の逆向き差分と `related_event_id` で UI との整合を保持するフロー、`Reject` の再承認トリガーと `MCP Router` のメッセージ返却を RFC 2119 で規定した。
+
 ## Open
 
 - [ ] Q15. 外部エージェント（例: `cloud_lambda_v2`）への問い合わせを `requires_user_consent` かつ `Audit Event` でのみ提案する場合、どのようなプロファイル名/リソースを許可し、誰がその一覧を管理するのか未定義です。提案可能な外部エージェントの最小限の分類や管理者承認フローを決める必要があります。 (`spec-nue.md` Sec.6.1.2)
@@ -102,8 +105,6 @@
       - インクリメンタル・レイアウト: 全ノードの物理シミュレーションを毎フレーム行うのではなく、フォーカス周辺のノードのみを計算対象とし、遠方のノードは座標を固定（フリーズ）します。
       - GPUインスタンシング: 同一形状のノード（星）やエッジ（光の線）はGPUIのインスタンス描画を利用し、描画コール数を最小限に抑えます。
 
-- [ ] Q19. `Shadow Buffer` の承認操作（`Accept`/`Reject`/`Partial Accept`/`Revert`）を Sec.4.2.1/4.2.2 で定義したが、それぞれが許容する `Approval Unit` の粒度（Workspace Session/ファイル/連続ハンク/任意行）や、`Reject` 後のエージェント再試行義務、`Revert` で生成される逆方向差分の再承認フローを明確にする必要があります。特に `Partial Accept` で非連続行を許すか、`Revert` で旧イベントを参照した `policy_id` をどう扱うかを決定いただけますか？
-  - Answer: <未回答>
 
 - [ ] Q20. `spec-nue.md` Sec.3.4 で JetBrainsMono ファミリの Bold/Italic を埋め込むことを決めたが、日本語・絵文字・右起動の記号などをカバーするフォントはどのように提供するか明確ではない。`FontContext` の `fallback_fonts` や追加バンドルによってどこまでカバーすべきか、OS フォント依存でも許容されるのかを決定してください。
   - Answer: 多言語（日本語）や特殊記号をどう扱うか、フォントフォールバックする。

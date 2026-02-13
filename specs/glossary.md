@@ -43,6 +43,7 @@
 | Sleep Config Change Aggregator | 機能 | `Sleep Mode` 中に `App Host` が維持する、`hot_reload_scope` ごとに `config_revision` が最大の変更と `LWW` マージ済み `changed_keys` を保持するキャッシュ。復帰時にはこの Aggregator をフラッシュして `ConfigChangeEvent` を再構成し、`Dependency-Aware Re-init Sequence` で順次再適用する。 | `spec-nue.md` Sec.7.2 で `hot_reload_scope` に紐づく LWW マージと `Audit Event` 記録の要件を追加した。 |
 | Shadow Buffer | データモデル | エージェント変更を承認前に保持する一時差分領域。各差分には発生時刻・発行元・対象ファイル・`Agent Status` を含み、`Galaxy View` と `Legacy View` で列挙/レビューできる。初期リリースでは `Accept` のみを提供し、`Workspace Session` 単位と `ファイル単位` の承認粒度をサポートする。 | 承認後に本バッファへ反映し、永続化されない。 |
 | Accept | 操作 | Shadow Buffer の差分をユーザーが承認し、確定反映する操作。 | 初期リリースは `Accept` のみ提供。 |
+| Partial Accept | 操作 | 差分の一部（`hunk`/`line_range`）を選択し、残余を新たな `focus_id` で保持しつつ段階的に承認する操作。 | `spec-nue.md` Sec.4.2.1/4.2.2 で `approved_ranges`/`remaining_ranges`/`related_event_id` を含む `Audit Event` と UI の再ハイライト、`focus_id` の再生成を定義。 |
 | Reject | 操作 | Shadow Buffer 上の差分をユーザーが却下し、該当変更を破棄する操作。 | `spec-nue.md` Sec.4.2.1 で `Audit Event` 確認後にエージェントへ再生成を促すフローを定義。 |
 | Revert | 操作 | 過去に `Accept` した差分を取り消し、逆向きの差分を Shadow Buffer へ生成する操作。 | `spec-nue.md` Sec.4.2.1 で `result=revert` の `Audit Event` と再承認ループを規定。 |
 | Approval Unit | 操作 | 変更承認の粒度（例: 一括、ファイル単位、ハンク単位）。初期リリースは `Workspace Session` 単位の一括 `Accept` と `ファイル単位 Accept` を提供し、`Partial Accept`/`Reject`/`Revert` は未実装。 | 将来的にハンク単位など細分化できる。 |
