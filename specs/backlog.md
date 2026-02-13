@@ -90,11 +90,12 @@
   - After: `spec-nue.md` Sec.7.2 で Sleep モードのトリガー、スナップショット保存・復元、`MCP Router`/`Editor Core` の停止と再開、`ConfigChangeEvent` の保留と `Audit Event` 記録を RFC 2119 で規定した。
 
 
-## ToDo
+- [x] P2: `focus_id` の生成/参照ルールを確定する
+  - Before: `Minimap`/`Structure Path`/`Smart Gutter`/`SessionSnapshot` で共有される `focus_id` の生成・一意性・ライフサイクルが未定義で、UI 一貫性が担保できなかった。
+  - After: `spec-nue.md` Sec.3.5.1 に `focus_id` のハンク単位定義、ULID 形式の構成要素、`Shadow Buffer` とのライフサイクル、`Audit Event`/`SessionSnapshot`/各 UI の同期要件を RFC 2119 スタイルで記載した。
 
-- [ ] P2: `focus_id` の生成/伝播ルールを確定する
-  - Before: `Minimap`/`Structure Path`/`Smart Gutter`/`SessionSnapshot` が `focus_id` を参照するが、粒度や一意性・更新タイミングが未定義で UI 整合の担保ができない。
-  - After: `specs/spec-nue.md` Sec.3.5.1/3.6/3.7/7.1 に `focus_id` の定義を追加し、`specs/ask.md` Q25 の回答にもとづいて参照実装が共有できる。
+
+## ToDo
 
 - [ ] P2: Sleep 中の `ConfigChangeEvent` 保留の振る舞いを仕様化する
   - Before: `Sleep Mode` では一括保留しているが、蓄積されたイベントのキュー順序・上限・復帰時の適用順序が未定義で再起動後の状態差異が生じる可能性がある。

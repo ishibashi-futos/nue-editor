@@ -120,9 +120,23 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `Minimap` のクリック/タップ操作は `Command Hub` の `Approval Requests` と `Legacy View` のツリーを連動させ、該当差分を開いて確認・承認できるようにすることを **MUST** とする。
 - `Minimap` の表示更新は `Audit Event` (`type=minimap.overlay` など) を発行し、検索/ビルド/差分イベントが UI へ提示されたことを記録して監査できるようにすることを **SHOULD** とする。
 
-#### `focus_id` 連携
+#### `focus_id` の生成と同期
 
-`Minimap`、`Structure Path`、`Smart Gutter`、および `SessionSnapshot` は `focus_id` をキーとして同一の差分/行を共通表示・ハイライトすることを前提にしているが、その生成ルール・一意性・更新タイミングが現時点で **未定義** であり、整合性の担保方法が未確定である。焦点識別子のスコープや `Shadow Buffer` エントリとの対応を確定させるため、`specs/ask.md` Q25 を参照し、この項目が決定され次第本章を更新する。
+`focus_id` は `Minimap`、`Structure Path`、`Smart Gutter`、`SessionSnapshot`、および `Command Hub` が共有する差分追跡の統一識別子であり、`Shadow Buffer` に差分エントリ（ハンク）が登録されたタイミングで生成される **MUST** とする。焦点となる差分はハンク単位（差分塊）で記録し、**MUST** で一意な値を割り当てる。
+
+- `focus_id` の生成は次の構成要素を含む ULID 形式とし、`Shadow Buffer` はエントリ保存時に以下をハッシュ化して基底値とすることを **MUST** とする。
+  - `file_path_hash`: ファイルパスの安定ハッシュ（64bit）により同じファイルを示す。
+  - `hunk_start_line` / `hunk_end_line`: 差分の開始行・終了行。
+  - `hunk_checksum`: 変更前後のスニペットの CRC32 や SHA1 を使ったダイジェスト。
+  - `timestamp`: 差分登録時のタイムスタンプ（UTC）。
+
+- 上記要素の組み合わせで生成される ULID を `focus_id` とし、`Shadow Buffer` は同じハンクを示す限りは同じ `focus_id` を再利用し、行番号や内容が変化して新たな差分塊が生まれた場合は新しい `focus_id` を再発行することを **MUST** とする。`focus_id` の更新は `Audit Event` の `focus_id` フィールドにも反映し、変更前後のマッピングを `related_event_id` で追跡できるようにすることを **SHOULD** とする。
+
+- 各 UI コンポーネント（`Minimap`/`Structure Path`/`Smart Gutter`/`Command Hub`）は、該当差分を描画・ハイライトする際に上記 `focus_id` を参照し、同一の `focus_id` を持つ差分は同じ視覚的状態になるよう同期を取ることを **MUST** とする。差分が承認/拒否された場合は 50ms 以内に関連する UI すべてで強調表示を解除し、`SessionSnapshot` もその `focus_id` を削除することを **SHOULD** とする。
+
+- `SessionSnapshot` は `focus_id` と `Approval Unit` のペアを記録し、ワークスペース再開時には該当 `focus_id` を `Shadow Buffer` 内で再解決して UI を再構築することを **MUST** とする。`focus_id` が見つからない場合はその差分が既に処理済みと判断し、保持していた `SessionSnapshot` エントリを破棄することを **SHOULD** とする。
+
+- `focus_id` は `Shadow Buffer` エントリが完全に `Accept`/`Reject` された時点で無効化され、同じロジックの差分が再度生成された場合は新しい `focus_id` を再作成することを **MUST** とする。このライフサイクルを厳密に管理することで、`Audit Event` やログが古い差分と紐づき続けるのを防ぎ、UI からの参照整合性を維持することができる。
 
 ### 3.6 Structure Path
 

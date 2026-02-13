@@ -59,6 +59,9 @@
 - [x] Q16. `ConfigChangeEvent` の `hot_reload_scope` は複数のコンポーネント（例: `router`/`terminal`/`agent`）を含む可能性がありますが、許容される列挙値と、複数 scope を含む変更時の再初期化順序や優先度が未定義です。`hot_reload_scope` の命名規則と、未定義の scope を受け取った場合のフェールセーフ動作を決め、その後の `Workspace Session`/`UI View` の再構成ルールを明確にする必要があります。 (`spec-nue.md` Sec.5.3)
   - Answer: Sec.5.3.1 に `hot_reload_scope` の許容値と、「Dependency-Aware Re-init Sequence」（`app`→`router`→`terminal`→`editor`→`semantic`→`agent`）、未知 scope を `hot_reloadable=false` 扱いで再起動要求し `Audit Event` に `config.reload.unknown_scope` を記録する仕様を追加した。
 
+- [x] Q25. `Minimap`/`Structure Path`/`Smart Gutter`/`SessionSnapshot` が共通で参照する `focus_id` の粒度（行/ハンク/差分）と一意性、`Shadow Buffer` エントリとの対応方法が未定義です。各 UI が同一 `focus_id` を参照し続ける運用を可能にする識別子の生成・更新ルールと、重複が発生した場合の整合性確保策を決める必要があります。 (`spec-nue.md` Sec.3.5.1/3.6/3.7/7.1)
+  - Answer: Sec.3.5.1 に `focus_id` をハンク単位の ULID として定義し、`file_path_hash`/`hunk_start_line`/`hunk_checksum`/`timestamp` を基底とした生成・`Shadow Buffer` でのライフサイクル管理、`Audit Event`/`SessionSnapshot`/`Minimap`/`Structure Path`/`Smart Gutter` が同一 `focus_id` を共有する同期要件を規定した。
+
 ## Open
 
 - [ ] Q15. 外部エージェント（例: `cloud_lambda_v2`）への問い合わせを `requires_user_consent` かつ `Audit Event` でのみ提案する場合、どのようなプロファイル名/リソースを許可し、誰がその一覧を管理するのか未定義です。提案可能な外部エージェントの最小限の分類や管理者承認フローを決める必要があります。 (`spec-nue.md` Sec.6.1.2)
@@ -123,12 +126,6 @@
     - Internal Validation (Command Hub): 生成された intent が、現在のコンテキスト（エディタがフォーカスされているか等）で実行可能かをチェック。
     - Candidate Presentation (UI): パレットに「アクションの候補」として表示。AIの確信度が高い場合は、決定打としてハイライト。
     - Local Execution (nue-app): ユーザーが選択した瞬間、システム内の Dispatcher が該当する Rust 関数を直接実行。
-
-- [ ] Q25. `Minimap`/`Structure Path`/`Smart Gutter`/`SessionSnapshot` が共通で参照する `focus_id` の粒度（行/ハンク/差分）と一意性、`Shadow Buffer` エントリとの対応方法が未定義です。各 UI が同一 `focus_id` を参照し続ける運用を可能にする識別子の生成・更新ルールと、重複が発生した場合の整合性確保策を決める必要があります。 (`spec-nue.md` Sec.3.5.1/3.6/3.7/7.1)
-  - Answer:
-    - 粒度: 「Hunk（差分塊）」 単位を基本とします。行単位では細かすぎて同期負荷が高く、ファイル単位では解像度が不足するためです。
-    - 生成ルール: file_path_hash + hunk_start_line + timestamp をベースに生成される ULID（ソート可能な一意ID）を使用します。
-    - 一意性の担保: Shadow Buffer に差分が登録された瞬間に focus_id が発行され、その差分が Accept または Reject されるまで生存します。
 
 - [ ] Q26. `Sleep Mode` で `ConfigChangeEvent` を保留している間、そのイベントをどの順序・頻度で再送するか、保留キューの上限や破棄判断、復帰後の適用タイミング（先頭から順に、最新のみ、優先度付きなど）を定義していません。`App Host` が Sleep 中に得た変更をどのように再評価し、失敗時にどうユーザーへ通知するかを明確にしてください。 (`spec-nue.md` Sec.5.2/5.3/7.2)
   - Answer: セッションが Sleep 中に発生した設定変更は、「最新状態への収束」 を優先し、無駄な再計算を排除します。
