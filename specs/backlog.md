@@ -99,9 +99,8 @@
   - Before: `Sleep Mode` における設定変更の保留が記述されていたものの、キュー順序・上限・再適用戦略・失敗時の通知が未定義で復帰後の状態差異リスクを残していた。
   - After: `spec-nue.md` Sec.7.2 に `Sleep Config Change Aggregator` を導入し、`hot_reload_scope` 単位で `config_revision` 最大値と `LWW` マージした `changed_keys` を保持、再開時に `Dependency-Aware Re-init Sequence` に従って順次再適用し成功/失敗 `Audit Event` を記録することを RFC 2119 で要求した。
 
+- [x] P2: Intent 候補の `Approval Unit` ポリシー
+  - Before: 自然言語モードで複数ファイル/複数ハンクを含む候補の `Approval Unit`・`Audit Event` の紐付けや `Shadow Buffer` の記録粒度が未定義で、UI と整合する形で候補を提示できていなかった。
+  - After: `spec-nue.md` Sec.6.1.1 に `Atomic Intent`（`parent_intent_id`）と `focus_id`/`related_event_id` で候補のまとまりを評価する RFC 2119 形式の `Approval Unit` ポリシーを追加し、Command Hub/UI・`Shadow Buffer`・`Audit Event` の整合性を保証した。
+
 ## ToDo
-
-
-- [ ] P2: Intent 候補からの `Approval Unit` 選択ポリシーを確定する
-  - Before: 自然言語モードで複数ファイル/ハンクを含む候補が生成される場合の `Approval Unit` や `Audit Event` への紐づけ、`Shadow Buffer` への差分記録粒度が未定義で整合性が取れていない。
-  - After: `specs/spec-nue.md` Sec.6.1.1/6.2.2 に `Approval Unit` ポリシーを追加し、`specs/ask.md` Q27 の解に基づいて UI と `Audit Event` の整合性が保証される。

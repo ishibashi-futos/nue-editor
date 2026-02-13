@@ -65,6 +65,9 @@
 - [x] Q26. `Sleep Mode` で `ConfigChangeEvent` を保留している間、そのイベントをどの順序・頻度で再送するか、保留キューの上限や破棄判断、復帰後の適用タイミング（先頭から順に、最新のみ、優先度付きなど）を定義していません。`App Host` が Sleep 中に得た変更をどのように再評価し、失敗時にどうユーザーへ通知するかを明確にしてください。 (`spec-nue.md` Sec.5.2/5.3/7.2)
   - Answer: `spec-nue.md` Sec.7.2 に `Sleep Config Change Aggregator` を設け、`hot_reload_scope` 単位で `config_revision` 最大値と `LWW` マージした `changed_keys` を保持、Wake up 時には `Dependency-Aware Re-init Sequence`（`app`→`router`→`terminal`→`editor`→`semantic`→`agent`）に従って順次 `ConfigChangeEvent` として再適用し、成功/失敗 `Audit Event` を記録し、失敗時は `Cyber Magenta` バナーで明示する仕様を追加した。
 
+- [x] Q27. Intent/Smart Search の候補が複数ファイル・複数ハンクにまたがる場合、どの `Approval Unit` を選び、`Shadow Buffer` の差分と `Audit Event` の `related_event_id`/`focus_id` をどう更新するかを決めたか？
+  - Answer: `spec-nue.md` Sec.6.1.1 で `parent_intent_id` をもつ **Atomic Intent** に基づいて候補を集約しつつ、`focus_id` 単位の `Approval Unit` を Shadow Buffer に個別記録するルールを RFC 2119 形式で記述した。Command Hub/UI は「5 箇所の変更」などの集約ラベルを表示しながら個別ハンクの確認・承認も可能にし、`Audit Event` には各 `focus_id` のリストと `related_event_id=parent_intent_id` を含めて部分承認/拒否が追跡できる状態にした。これにより単一の自然言語インテントに対する UI、Shadow Buffer、監査の整合性が保証される。
+
 ## Open
 
 - [ ] Q15. 外部エージェント（例: `cloud_lambda_v2`）への問い合わせを `requires_user_consent` かつ `Audit Event` でのみ提案する場合、どのようなプロファイル名/リソースを許可し、誰がその一覧を管理するのか未定義です。提案可能な外部エージェントの最小限の分類や管理者承認フローを決める必要があります。 (`spec-nue.md` Sec.6.1.2)
@@ -129,13 +132,3 @@
     - Internal Validation (Command Hub): 生成された intent が、現在のコンテキスト（エディタがフォーカスされているか等）で実行可能かをチェック。
     - Candidate Presentation (UI): パレットに「アクションの候補」として表示。AIの確信度が高い場合は、決定打としてハイライト。
     - Local Execution (nue-app): ユーザーが選択した瞬間、システム内の Dispatcher が該当する Rust 関数を直接実行。
-
-- [ ] Q27. Intent/Smart Search の候補が複数ファイル・複数ハンクにまたがる場合、どの `Approval Unit` を選び、`Shadow Buffer` の差分と `Audit Event` の `related_event_id`/`focus_id` をどう更新するのか、分割すべきか一括で扱うべきかといったポリシーが未定義です。適正なハンドリングを決める必要があります。 (`spec-nue.md` Sec.4.2.1/6.1.1/6.2.2)
-  - Answer:
-    - Approval Unit の分割ポリシー
-      - 原則: 「論理的最小単位（Atomic Intent）」 で一括管理します。
-      - 一つの自然言語入力（Intent）から派生した複数のファイル変更は、同一の parent_intent_id を共有します。
-      - UI 提示: Command Hub では一括して「5箇所の変更を適用」と表示しますが、Shadow Buffer 上では個別の focus_id を持ち、ユーザーは「一括 Accept」または「個別の Hunk 単位の Reject」を選択可能です。
-    - 識別子の更新ルール
-      - 関連性: Audit Event には parent_intent_id と、ぶら下がる全ての focus_id のリストを記録します。
-      - 部分的承認時の挙動: 5つの変更のうち3つだけ Accept した場合、残りの2つは Shadow Buffer に残り続け、focus_id は維持されます。Audit Event には result: partial_accepted として記録され、related_event_id を通じて元のインテントと紐付けられます。

@@ -408,7 +408,13 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 #### インテント候補の Approval Unit
 
-自然言語モードで生成された `Intent Request` が複数ファイルや複数ハンクを含む場合、`Shadow Buffer` および `Audit Event` 側でどの `Approval Unit`（Workspace/ファイル/ハンク）を用いて差分を記録し、`related_event_id` や `focus_id` をどの粒度で更新するかは現時点で **未定義** である。候補の分割・集約や `Command Hub` への表示の粒度を決めるため、この仕様項目を `specs/ask.md` Q27 で検討中とし、回答が得られた段階で本節を更新することとする。
+`nue-semantic` が自然言語入力から複数のファイル/ハンクを含む `Intent Request` を生成した場合、`Command Hub` はそれらを一つの **Atomic Intent**（用語集参照）として取り扱い、その集合を識別する `parent_intent_id` を付与することを **MUST** とする。Atomic Intent は「自然言語で表現された一連の変更提案を最小の実行可能なかたまり（論理最小単位）でまとめたもの」であり、`Command Hub` は候補一覧上で「5 箇所の変更」や「Rust ファイル 3 件」などの集約表現を提示しつつ、同一 `parent_intent_id` を共有する個別の `focus_id` を参照/展開できるようにすることを **SHOULD** とする。
+
+各候補に紐づいて `Shadow Buffer` 内に登録される差分エントリは、原則として `focus_id` ごとに `Approval Unit`（ハンク単位）を定義しつつ、`parent_intent_id` によって関連付けることを **MUST** とする。`Shadow Buffer` は変更元のファイルパス・行範囲・diff 内容に応じて `approval_unit`（ハンク／ファイルなど）を設定し、`Audit Event` には `parent_intent_id` と `focus_id` の一覧を含めて、同一意図とその分割されたチャンクが追跡可能であることを **SHOULD** とする。`Command Hub` から候補を展開した際は、ユーザーが一覧内の任意の `focus_id` にフォーカスして差分を確認・部分承認できる UI を提供し、選択されなかった `focus_id` は `Shadow Buffer` に残したままにすることを **MUST** とする。
+
+Atomic Intent の承認操作については、`Command Hub` が「すべて承認」アクションを受け取ったときに、集合内の各 `focus_id` に対して順次 `Accept` を実行し、`Audit Event` 側では `related_event_id=parent_intent_id` として `result=accepted` を記録することを **SHOULD** とする。部分的に (例: 5 個のうち 3 個) の `focus_id` だけを `Accept` した場合、残り 2 個は `Shadow Buffer` に新しい `focus_id` を保持したままで残され、`Audit Event` に `result=partial_accept`・`approved_ranges`・`related_event_id=parent_intent_id` を含めてトレースできるようにすることを **MUST** とする。これにより `SessionSnapshot` や `Structure Path` などが `parent_intent_id` をキーに UI 状態を再構築できるようにし、残差分の `focus_id` が `Audit Event` の `related_event_id` で親インテントと連結されることを **SHOULD** とする。
+
+`Shadow Buffer` が `Accept` 以外の操作（`Reject`/`Partial Accept`/`Revert`）によって差分を変化させた場合も、変更済みの `focus_id` と `parent_intent_id` は引き続き `Audit Event` に記録し、`result=revert`/`result=reject` などで Operation の種類を明示することを **SHOULD** とする。これによって `Command Hub` の候補リストと `Audit Event` の監査パネルが同一の `Atomic Intent` を軸に同期し、単一の自然言語入力に対する承認状態・差分一覧・再試行履歴を一貫して追跡できるようにすることを **MUST** とする。
 
 ### 6.1.2 Intent/Smart Search のコンポーネント
 
