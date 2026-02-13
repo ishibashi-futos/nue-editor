@@ -52,3 +52,5 @@
 | Config Revision | シーケンス | 設定の再評価ごとに単調増加する番号。 | `ConfigChangeEvent` には `config_revision` を含め再起動や再適用の状態を判別可能にする。 |
 | Hot Reload Scope | 範囲 | 設定変更が `Workspace Session` 内のどのコンポーネント（例: `router`）に影響するかを示す列挙値。 | `spec-nue.md` Sec.5.3.1 で `app`/`router`/`terminal`/`editor`/`semantic`/`agent` を明記し、`hot_reloadable=false` の変更は再起動完了まで適用されないとする。 |
 | Dependency-Aware Re-init Sequence | プロセス | `ConfigChangeEvent` が複数の `hot_reload_scope` を含む場合に下位レイヤーから上位レイヤーへ順次再初期化する再評価シーケンス。 | `spec-nue.md` Sec.5.3.1 で `app`→`router`→`terminal`→`editor`→`semantic`→`agent` の順序と `Audit Event` の失敗記録を定義。 |
+| FontContext | コンポーネント | `nue-ui`（GPUI）に実装されたフォント登録レジストリで、`nue-font::text`/`emphasis`/`meta` のキーに `FontHandle` を紐づけ、描画レイヤーが一貫した字形を参照できるようにする。 | `spec-nue.md` Sec.3.4.2 でフォント埋め込みと初期化順序を定め、フォントのオーバーライドやフォールバック順序もこのコンテキスト経由で制御することを要件化。 |
+| JetBrains Mono | タイポグラフィ | JetBrains が公開する SIL Open Font License 下の等幅フォントファミリ。`Regular`/`Bold`/`Italic` を Nue の標準コード文字・強調・メタ情報に割り当てる。 | `spec-nue.md` Sec.3.4.1 で各用途と `FontContext` への埋め込み要件を明記。 |

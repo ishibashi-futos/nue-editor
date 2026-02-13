@@ -45,14 +45,11 @@
   - Before: `Accept` 以外（Reject/Revert/Partial Accept）が未定義で、運用手順が確立できない。
   - After: `spec-nue.md` Sec.4.2.1/4.2.2 で `Shadow Buffer` が提供すべき `Accept`/`Reject`/`Partial Accept`/`Revert` の承認操作、それぞれの `Approval Unit`・`Audit Event` フィールド・Editor/UI との整合ルールを RFC 2119 形式で定義し、差分の分割・拒否・逆方向承認の更新手順と通知要件を固めた。
 
-## ToDo
+- [x] P1: 使用可能フォントの具体化と埋め込み
+  - Before: UI で利用する等幅フォント・強調フォント・メタフォントやそれらの埋め込み手順が未定義で、マルチプラットフォームでの字形の一貫性が確保できなかった。
+  - After: `spec-nue.md` Sec.3.4 に JetBrainsMono ファミリ（Regular/Bold/Italic）の用途割当を RFC 2119 で定義し、`nue-ui` の `FontContext` へのバイナリ埋め込み・初期化順序・フォールバック・オーバーライド要件を明記した。
 
-- [ ] P1: 使用可能フォントの具体化と埋め込み
-  - OSSフォントを使用可能フォントに設定、バイナリに埋め込み
-    - 標準コード / UI,JetBrainsMono-Regular.ttf,高い可読性とリガチャー。
-    - キーワード / 強調,JetBrainsMono-Bold.ttf,ネオンカラーと組み合わせた際の見栄え。
-    - メタ情報 / コメント,JetBrainsMono-Italic.ttf,コメントやMuted Textの区別。
-  - UIの初期化プロセス内で埋め込んだバイナリを `FontContext` に登録
+## ToDo
 
 
 - [ ] P1: `MCP Router` ポリシー衝突時の優先順位を定義する

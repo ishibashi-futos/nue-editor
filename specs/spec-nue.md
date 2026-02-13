@@ -106,6 +106,24 @@ Galaxy View は常に 500 個以内のノードを明示的に描画すること
 
 パフォーマンス維持のため、Galaxy View はフォーカス周辺のノードのみを再配置するインクリメンタルレイアウトを **SHOULD** 用い、遠方ノードは座標を固定することで休止状態に置く。描画には同一形状のノード・エッジに対して GPUI の GPU インスタンシングを活用し、ドローコールを最小化することも **SHOULD** とする。
 
+### 3.4 タイポグラフィとフォント
+
+Nue の UI は背景のダークトーンとネオン系アクセントのコントラストの中で文字の可読性を確保することが不可欠である。フォントの種類・埋め込み・利用パターンは以下の要件を満たすことを **MUST** とする。
+
+#### 3.4.1 標準フォントと利用領域
+
+- `JetBrainsMono-Regular`（標準コード用）: エディタ本文、差分ラベル、コマンドリストなど主要テキストはこのフォントを優先的に使用することを **MUST** とする。等幅かつリガチャに偏りがない字形を選び、高彩度背景でも文字の輪郭が鮮明に見える存在感を維持する。
+- `JetBrainsMono-Bold`（キーワード・強調）: AIの提案や `Command Hub` の操作候補、`Shadow Buffer` のヘッダーには太字を用いて視線を誘導することを **SHOULD** とする。強調項目が枠線や色に埋もれないよう、太さと間隔のバランスが保たれるように設定する。
+- `JetBrainsMono-Italic`（メタ情報・コメント）: ステータス注釈、コメント、控えめな説明文には斜体を使い、ノイズ感を下げることを **SHOULD** とする。`Dusty Grey` との組み合わせで、「補足」や「参照」を明示する。
+- これらフォントがカバーしきれないスクリプト（CJK/右から左など）に対しては、`FontContext` のフォールバック設定を通じて OS 由来の信頼できるフォントを利用することを **SHOULD** とする。フォールバック順序は `JetBrainsMono` 系列 → グローバル設定の `fallback_fonts` → OS の等幅フォントの順とし、どのフォントが実際に選ばれたかを `FontContext` がトレースできるよう属性を記録する。
+
+#### 3.4.2 埋め込みと `FontContext` 登録
+
+- `Nue` は `nue-ui`（GPUI）の初期化時点で `JetBrainsMono-Regular`/`Bold`/`Italic` をバイナリに埋め込み、そのバイト列を `FontContext` に登録することで、オフライン環境や制御されたランタイムでも同一の字形を保証することを **MUST** とする。
+- 埋め込みフォントにはライセンスパッケージ（例: JetBrains Mono の SIL Open Font License）を同梱し、バイナリ内で `FontContext` Bundled Font Catalog にメタ情報（ファイル名・ライセンス）を付与することを **SHOULD** とする。
+- `FontContext` への登録は、UI 初期化の最初のフレームより前（`nue-ui` の `FontContext::register` 呼び出しの完了前）に終えておくことを **MUST** とする。フォント名のキーは `nue-font::text`, `nue-font::emphasis`, `nue-font::meta` のように命名し、描画レイヤーがキーを参照して一覧できるようにする。
+- 上記フォントを置換したい場合は、`FontContext` の `override` API を通じて別の `FontHandle` を挿入し、`Shadow Buffer` や `Galaxy View` はフォントキーを変えずに差し替えられる仕組みを維持することを **SHOULD** とする。
+
 ---
 
 ## 4. MCP (Model Context Protocol) ツール仕様
