@@ -61,6 +61,10 @@
   - Before: エディタ右側に配置される高解像度プレビューの要件や `Shadow Buffer`/`Command Hub`/`Audit Event` との同期方法が曖昧で、CI 出力や差分の可視化方針が未定義。
   - After: `spec-nue.md` Sec.3.5 に Minimap の 60fps 表示要件、エラー/検索/差分オーバーレイ、`Shadow Buffer` との `focus_id` 連携、クリック操作の `Command Hub` への橋渡しおよび `Audit Event` 記録について RFC 2119 で定義した。
 
+- [x] P2: Structure Path 連携
+  - Before: エディタ上部に階層パスを表示する構造/動作要件が未定義で、Command Hub・Shadow Buffer・Legacy View との同期と操作仕様が曖昧であった。
+  - After: `spec-nue.md` Sec.3.6 に Structure Path の表示トリガー、差分/承認マーカー、Shadow Buffer/Command Hub/Minimap との同期ルール、相互作用・アクセシビリティ要件を RFC 2119 で文書化した。
+
 
 ## ToDo
 
@@ -68,10 +72,6 @@
 - [ ] P2: Smart Gutter
   - 行番号の隣に、Gitの差分（既存）と AI の Shadow Buffer 差分を区別して表示。
   - AIによる変更行には特殊な「AIパルス・インジケーター」を表示し、クリックでその行の承認/却下メニューをポップアップ。
-
-- [ ] P2: Structure Path
-  - エディタ上部に Project > Folder > File > Class > Method を表示。
-  - 各要素をクリックすることで、同一スコープ内の他のシンボルへ即座にジャンプ可能
 
 - [ ] P1: Global search
   - 複数ファイルに跨った検索

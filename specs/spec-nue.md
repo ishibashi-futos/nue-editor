@@ -120,6 +120,18 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `Minimap` のクリック/タップ操作は `Command Hub` の `Approval Requests` と `Legacy View` のツリーを連動させ、該当差分を開いて確認・承認できるようにすることを **MUST** とする。
 - `Minimap` の表示更新は `Audit Event` (`type=minimap.overlay` など) を発行し、検索/ビルド/差分イベントが UI へ提示されたことを記録して監査できるようにすることを **SHOULD** とする。
 
+### 3.6 Structure Path
+
+`Structure Path` はエディタ上部に常設される階層ナビゲーションバーであり、「Project > Folder > File > Class/Module > Method/Function」のパスを常に表示し、変更のコンテキストと承認状態を一目で把握できることを **MUST** とする。
+
+- **更新トリガー**: エディタのアクティブバッファ、カーソル位置、`Shadow Buffer` 内の差分および `Command Hub` の現在候補が変更された際、`Structure Path` は 100ms 以内に再評価され、存在する差分・承認待ち・実行中のエージェントフローを反映した状態にすることを **SHOULD** とする。
+- **表示/マーキング**: 各セグメントには `Agent Status` に応じた `Glyph` と `Color` を付与する。AI 差分を含むセグメントは `Neon Cyan` のパルス、承認待ちは `Solar Flare` のドット、Git 差分のみは `Midnight Glass` の下線、エラー状態は `Cyber Magenta` のバッジ、といった視覚的強調を付ける。高彩度が困難なモードでは `Glyph` とラベルで同じ意味を伝えることを **MUST** とする。
+- **相互作用**: セグメントクリックで `Legacy View`/`Command Hub` の `Navigation Mode` が対応箇所へジャンプし、Shift+クリックなどの複数選択操作で `Command Hub` に `Intent Request` を出して範囲選択状態を生成することを **SHOULD** とする。キーボードショートカット（`Alt+1` ～ `Alt+5` など）も提供し、スクリーンリーダー向けに完全なパステキストをアノテートすることを **SHOULD** とする。
+- **Shadow Buffer との連携**: `Structure Path` は `Approval Unit`（ファイル/ハンク）ごとの `Audit Event` を参照し、未承認のパスに `Solar Flare` の点滅、承認済のパスには `Electric Lime` のチェックマークを表示する。`Partial Accept` で分割された範囲にはサブセグメントを展開して `related_event_id` を追跡できる形にすることを **SHOULD** とする。
+- **Command Hub / Minimap との同期**: `Command Hub` が `Backoff State` 中は `Structure Path` が最終確定候補を保持しつつ `Re-scoring…` ラベルを表示し、`Minimap` の `focus_id` と連動して現在の差分セグメントを強調表示することを **SHOULD** とする。差分の承認/拒否後は 50ms 以内にパス上の状態を更新し、UI の整合性を維持することを **MUST** とする。
+
+`Structure Path` は `Legacy View`・`Minimap`・`Command Hub` のいずれのモードにおいても現在位置と未処理差分をつなぎとめる役割を果たし、ユーザーが自身の作業対象を見失わないよう一貫したナビゲーション体験を提供することを **MUST** とする。
+
 ---
 
 ## 4. MCP (Model Context Protocol) ツール仕様
