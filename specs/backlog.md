@@ -20,6 +20,34 @@
 
 ## ToDo
 
+- [ ] P1: デザイン・カラーの具体化を進める
+  - カテゴリ,色名,カラーコード,主な使用箇所 / 役割
+    - Background,Deep Abyss, #0B0E14 ,エディタのメイン背景。最も暗いレイヤー。
+    - Surface,Space Grey, #1A1D23 ,サイドバー、タブ、パネルの背景。Baseより一段明るい。
+    - Border,Midnight Glass, #2D323C ,パネルの境界線、セパレーター。
+    - Primary (AI),Neon Cyan, #00F5FF ,エージェント活動中、AI提案のハイライト、ミニマップのAI位置。
+    - Success / Accept,Electric Lime, #32FF7E ,一括承認ボタン、正常終了通知、保存済みインジケーター。
+    - Warning / Wait,Solar Flare, #FFF200 ,ユーザー入力待ち、未承認の差分ガター、警告アイコン。
+    - Error / Alert,Cyber Magenta, #FF006E ,ビルドエラー、認可拒否、Galaxy Viewでのノード異常振動。
+    - Information,Ether Purple, #BF5AF2 ,LSPの型情報、シンボル定義、Galaxy Viewの接続線（依存関係）。
+    - Text (Main),Cloud White, #E4E7EB ,標準テキスト、コード文字。
+    - Text (Muted),Dusty Grey, #717984 ,コメント、無効なUI要素、パンくずリスト。
+  - エージェントの状態表現
+    - Busy: Neon Cyan(#00F5FF) がパルス状に発光（Opacity 0.4 ↔ 1.0）。
+    - Waiting: Solar Flare(#FFF200) が低速で点滅。
+    - Error: Cyber Magenta(FF006E) が鋭く明滅。
+  - 差分（Diff）と承認の視覚化
+    - 未承認の行 (Gutter): Solar Flare（イエロー）の縦線。
+    - 承認済み / 確定: インジケーターが消滅し、テキストが Cloud White に馴染む。
+    - 承認ボタン: Electric Lime（グリーン）のグロー効果。
+
+- [ ] P1: 使用可能フォントの具体化と埋め込み
+  - OSSフォントを使用可能フォントに設定、バイナリに埋め込み
+    - 標準コード / UI,JetBrainsMono-Regular.ttf,高い可読性とリガチャー。
+    - キーワード / 強調,JetBrainsMono-Bold.ttf,ネオンカラーと組み合わせた際の見栄え。
+    - メタ情報 / コメント,JetBrainsMono-Italic.ttf,コメントやMuted Textの区別。
+  - UIの初期化プロセス内で埋め込んだバイナリを `FontContext` に登録
+
 - [ ] P1: `Shadow Buffer` の承認モデルを定義する
   - Before: `Accept` 以外（Reject/Revert/Partial Accept）が未定義で、運用手順が確立できない。
   - After: 承認操作セット、`Approval Unit`、競合時挙動を定義し、UI 操作と Core 反映ルールを一致させる。
