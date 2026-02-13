@@ -140,11 +140,26 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 `argument_constraints` は `Permit Arguments` の実体であり、**MUST** かつ明示的な `hash` マッチを持たない限り、引数の型や値を許可しない。エントリは任意で `allow_extra_arguments=true` を付与して引数の拡張を許可できるが、このフラグを使う場合も少なくとも `argument_constraints` に1つ以上の名前を含め、最低限の引数情報を保つことを **MUST** とする。
 
 #### 4.1.2 Policy Evaluation and Conflict Resolution
-`MCP Router` は呼び出しごとに、`domain`/`tool` → `execution_context` → `argument_constraints` の順でポリシーを絞り込む。最初の `deny` マッチが発生した時点で評価を打ち切り、`deny` を返す。`deny` と `allow` が競合する場合は常に `deny` を優先し、`Audit Event` に拒否理由と該当 `policy_id` を記録することを **MUST** とする。
+`MCP Router` は呼び出しごとに次のパイプラインで候補ポリシーを絞り込むことを **MUST** とする。
 
-`deny` が存在しない場合、`allow` の候補が残るので、`argument_constraints` の数（特定性）と `priority` を用いて最も詳細なエントリを選択する。`MCP Router` は、同一 `priority` かつ同じ制約数の `allow` が複数ある場合、最新の `policy_revision` を持つエントリを優先し、同一であれば設定ファイルで定義順に従う。すべてのステップで評価対象の `policy_id` と `approval_state` を `Audit Event` に含め、引数については個人情報を漏洩させない形式（デフォルトはハッシュ）で記録する。
+1. `domain`/`tool` 項目と一致するエントリを抽出する。
+2. 抽出されたエントリを `execution_context`（例: `Workspace Session`、ブランチ、`Agent Status`）でフィルタリングする。
+3. `argument_constraints` で引数の名前・値・マッチング方式を照合し、条件を満たすエントリを残す。
+4. 残ったエントリを `effect`（`deny`/`allow`）で分類する。
 
-候補が存在しない場合は暗黙的な拒否とし、`Audit Event` に `policy_id=null` を記録して運用側がログから不足を分析できるようにする。拒否レスポンスには `message` が含まれることを **SHOULD** とし、エージェントに明確な次の手順を促す。承認済みの `MCP Tool` 呼び出しは、`Authorization Policy` の `execution_context` が変化した場合（例: `config_revision` の更新、`Workspace Session` の切り替え）に再評価されるものとし、キャッシュされた承認ステートは無効化される。
+このパイプラインの過程で `deny` が1件でもマッチした場合、評価を直ちに打ち切って `deny` を返すことを **MUST** とする。`deny` のレスポンスには該当 `policy_id`、`message`、`resolution_hint` を含め、`Audit Event` には拒否理由・`policy_id`・`execution_context`・匿名化された引数値を記録することを **MUST** とする。`deny` は `allow` に優先し、`deny` / `allow` が競合する順序付けや `Audit Event` 上でのトレーサビリティを損なわないようにすることを **SHOULD** とする。
+
+`deny` が存在しない場合、`allow` 候補が残るので以下の順序で最も特化したエントリを選定することを **MUST** とする。
+
+- `argument_constraints` の件数（より多数＝より詳細な引数制約）を降順で評価し、特異性の高い候補を優先する。
+- 同一件数の場合は `priority`（整数、未指定は `0`）を降順で比較する。
+- それでも複数残る場合は `policy_revision`（大きい方が新しい）を優先し、さらに同値であれば設定ファイル内の定義順に従う。
+
+選ばれた `allow` エントリは `Audit Event` に `policy_id`、`approval_state`、`priority`、`argument_constraints` の照合結果を含め、引数は `audit.anonymization.level` に従ってハッシュまたはマスクした形式で記録することを **MUST** とする。
+
+フィルタリングの結果、`deny` も `allow` も残らなかった場合は暗黙的な拒否とし、`Audit Event` に `policy_id=null` を記録して不足を運用側が分析できるようにし、エージェントには `message` を添えて次に取るべきアクションを示すことを **SHOULD** とする。
+
+`Authorization Policy` の定義に変化（`config_revision` の更新、`Workspace Session` の切り替えなど）があった場合、既存の承認ステートは無効化され、対象の `MCP Tool` 呼び出しは再評価されることを **MUST** とする。
 
 #### 4.1.3 Approval State and User Flow
 `approval_state` は、ユーザーまたは自動化の承認要件を示す属性であり、次の値を **MUST** または **SHOULD** で選択する。
@@ -345,3 +360,23 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `Local RAG` に使うインデックスはファイルシステムの変更（追加/削除/リネーム）を検知した後 5 秒以内に部分更新し、入力ミスや類似語を許容するキーワードマッチを備えることを **SHOULD** とする。
 
 以上により `Command Hub` が意図を中心とした起点となり、AIエージェントと人間が共に進化するループの起点として機能する。
+
+## 8. 未解決の設計課題と ToDo
+
+本仕様では、`specs/backlog.md` に ToDo 形式で追跡している項目を逐次列挙し、Sec.4.2.1 で言及した `Reject`/`Partial Accept`/`Revert` のような拡張を忘れないように管理することを **MUST** とする。
+
+### 8.1 Shadow Buffer の拡張承認フロー
+
+`Shadow Buffer` の `Reject`/`Partial Accept`/`Revert` に関して、承認単位（ハンク/行/ファイル/セッション）の組み合わせ、`Audit Event` に含めるフィールド、UI での差分再表示・再承認の制御を未定義のままにしないことを **MUST** とする。詳細は `specs/ask.md` の Q19 に追跡しており、該当項目が具体化するまでは本仕様の該当節を再レビューして不足がないか確認することを **SHOULD** とする。
+
+### 8.2 追加 UI 表示装置（Minimap / Smart Gutter / Structure Path）
+
+Minimap や Smart Gutter、Structure Path のような新規ビューは、`Shadow Buffer` や差分データ、`Agent Status` との整合性を明示しないまま構築を進めてはならない。これらの仕様は `specs/backlog.md` の該当 ToDo（`Minimap` / `Smart Gutter` / `Structure Path`）に目標と依存関係を残し、実装検討時に再度 `Command Hub`/`Legacy View` とのデータ連携を文書化することを **SHOULD** とする。
+
+### 8.3 検索・セッション・リソース管理機能
+
+Global Search、Semantic Search Integration、タブ・レイアウト管理、Sleep 機能、`nue-semantic` のシングルトン運用など、ワークスペースや AI リソースに関わる機能要望は `specs/backlog.md` の該当 ToDo に記録しておき、仕様化に着手する際は `App Host`/`Workspace Session` の構成と整合する形で取り込む必要がある。これらの項目は `nue-semantic` の応答性や `App Host` のメモリ制御戦略に影響するため、再設計時には関連する `ConfigChangeEvent` の `hot_reload_scope` と整合性を取ることを **SHOULD** とする。
+
+### 8.4 外部エージェント連携とフォント周りの未解決
+
+外部エージェントへの問い合わせ先のプロファイルや管理フローについては `specs/ask.md` Q15 で確認中であり、承認制御や `Audit Event` 連携の仕様が固まるまでは `nue-semantic` による提案を自動化しない運用を **MUST** とする。また、JetBrains Mono と日本語/特殊記号フォントの混在に関する要件は Q20 で再確認する予定で、`FontContext` のフォールバック順序に変更が生じた場合は Sec.3.4 の記述を即座に更新することを **SHOULD** とする。

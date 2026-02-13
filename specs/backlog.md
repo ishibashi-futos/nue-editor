@@ -41,6 +41,15 @@
 - [x] P1: Command Hubの候補更新遅延と外部エージェント提案の挙動
   - Before: 16ms を超える候補更新遅延時の UI 表示と `Action/Navigation Mode` への案内、`nue-semantic` の遅延中の再スコアリング状態、外部エージェント提案の制御ポリシーが未定義であった。
   - After: `spec-nue.md` Sec.6.1.1 で `Backoff` 状態が遅延中の候補を保持し進捗ラベルを表示すること、`Action Mode`/`Navigation Mode` への移行ヒントを明示し、`nue-semantic` の再スコアリング中も UI が状態を伝えることを RFC 2119 で定義した。Sec.6.1.1-6.1.2 では外部エージェント提案を `requires_user_consent` + `Audit Event` で限定プロファイル（例: `external_agent_profile=cloud_lambda_v2`）のみに許可し、候補が存在しない場合に「現在のコンテキストでは解決不能」レスポンスを返すと記述した。
+
+- [x] P1: `MCP Router` ポリシー衝突時の優先順位を定義する
+  - Before: 認可粒度（ツール/引数/実行コンテキスト）は確定したが、`allow` と `deny` の衝突解決規則が未定義で、評価順序・`Audit Event` への記録粒度が不明瞭であった。
+  - After: `spec-nue.md` Sec.4.1.2 にポリシー評価パイプライン（`domain`/`tool` → `execution_context` → `argument_constraints` → `effect`）と `deny`/`allow` の優先付け、`priority`/`policy_revision` による選定順序、および `Audit Event` で必要なトレーサビリティフィールドを RFC 2119 で規定した。
+
+- [x] P1: 初期リリースの `Approval Unit` を確定する
+  - Before: 初期リリースは `Accept` のみと決定済みだが、承認粒度（一括固定/ファイル単位）が未定義で、`Shadow Buffer` 操作との整合も未記述であった。
+  - After: `spec-nue.md` Sec.4.2 において、ワークスペース単位とファイル単位の `Accept` を `MUST` とし、`Partial Accept` によるハンク単位の拡張や `Reject`/`Revert` の監査要件は現行 ToDo として整理した。
+
 - [x] P1: `Shadow Buffer` の承認モデルを定義する
   - Before: `Accept` 以外（Reject/Revert/Partial Accept）が未定義で、運用手順が確立できない。
   - After: `spec-nue.md` Sec.4.2.1/4.2.2 で `Shadow Buffer` が提供すべき `Accept`/`Reject`/`Partial Accept`/`Revert` の承認操作、それぞれの `Approval Unit`・`Audit Event` フィールド・Editor/UI との整合ルールを RFC 2119 形式で定義し、差分の分割・拒否・逆方向承認の更新手順と通知要件を固めた。
@@ -49,17 +58,8 @@
   - Before: UI で利用する等幅フォント・強調フォント・メタフォントやそれらの埋め込み手順が未定義で、マルチプラットフォームでの字形の一貫性が確保できなかった。
   - After: `spec-nue.md` Sec.3.4 に JetBrainsMono ファミリ（Regular/Bold/Italic）の用途割当を RFC 2119 で定義し、`nue-ui` の `FontContext` へのバイナリ埋め込み・初期化順序・フォールバック・オーバーライド要件を明記した。
 
+
 ## ToDo
-
-
-- [ ] P1: `MCP Router` ポリシー衝突時の優先順位を定義する
-  - Before: 認可粒度（ツール/引数/実行コンテキスト）は確定したが、`allow` と `deny` の衝突解決規則が未定義。
-  - After: 衝突解決規則（例: `deny` 優先）と評価順序を RFC 2119 で規定し、拒否時の `Audit Event` 記録要件を固定する。
-
-- [ ] P1: 初期リリースの `Approval Unit` を確定する
-  - Before: 初期リリースは `Accept` のみと決定済みだが、承認粒度（一括固定/ファイル単位）が未定義。
-  - After: 初期 `Approval Unit` を `一括` に固定し、将来のハンク単位承認への拡張条件を仕様化する。
-
 
 - [ ] P2: Minimapの実装
   - ファイル右側に配置される高解像度プレビュー。
