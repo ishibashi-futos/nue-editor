@@ -46,8 +46,8 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
 | Primary (AI) | Neon Cyan | #00F5FF | AI 活動中のハイライト、エージェントのステータス表示、ミニマップの AI 位置。 | 光に近い強い彩度を持ち、Pulse アニメーションと併用することで注目を集める。 |
 | Success / Accept | Electric Lime | #32FF7E | 承認ボタン、成功通知、保存済インジケーター。 | 過度な頻出を避けつつ「安全/確定」を意味するヒュー。 |
 | Warning / Wait | Solar Flare | #FFF200 | ユーザー入力待ち、未承認差分のガター、警告アイコン。 | 点滅アニメーションと組み合わせ、緊急性と待ち時間の両方を表す。 |
-| Error / Alert | Cyber Magenta | #FF006E | ビルドエラー、認可拒否、Galaxy View のノード異常振動。 | オペレーションを即座に中断させるため、Flash アニメーションと併用する。 |
-| Information | Ether Purple | #BF5AF2 | LSP 型情報、シンボル定義、Galaxy View の依存線。 | 情報提供的な補助要素で使用。 |
+| Error / Alert | Cyber Magenta | #FF006E | ビルドエラー、認可拒否、UI 上のノードや通知の異常振動表示。 | オペレーションを即座に中断させるため、Flash アニメーションと併用する。 |
+| Information | Ether Purple | #BF5AF2 | LSP 型情報、シンボル定義、依存線などの補助的情報。 | 情報提供的な補助要素で使用。 |
 | Text (Main) | Cloud White | #E4E7EB | 標準テキスト、コード文字。 | 背景とのコントラストが十分なことを確認する。 |
 | Text (Muted) | Dusty Grey | #717984 | コメント、無効 UI、パンくず。 | 帯状背景や低重要度テキストに使用する。 |
 
@@ -64,7 +64,7 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
 
 差分（Diff）と承認可視化については、以下のルールを **MUST** とする。
 
-- 未承認の行（Gutter）には `Solar Flare` の縦線を表示し、`Command Hub` や `Galaxy View` の候補パネルでも同色で強調する。
+- 未承認の行（Gutter）には `Solar Flare` の縦線を表示し、`Command Hub` や承認パネルなどでも同色で強調する。
 - 承認済み/確定行は `Cloud White` に馴染ませて Gutter 表示とテキストの彩度を段階的に落とす。
 - 承認ボタンや完了インジケーターは `Electric Lime`（#32FF7E）でグロー効果を付与し、視覚的な “完了” を伝える。
 
@@ -79,32 +79,12 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
 * **Error (Magenta Vibration)**: ビルド失敗や例外発生。
 * **Idle (Dimmed)**: 待機状態。
 
-### 3.3 エクスプローラー：二つの顔 (Legacy & Galaxy)
+### 3.3 エクスプローラー：Legacy View
 
-ヘッダーのトグルボタンで瞬時に切り替え可能。
+ヘッダーのトグルボタンにより複数モードを準備する設計ではあるが、初期リリースでは Legacy View を中心に据え、ディレクトリツリーを活用したファイル検索と構造把握を重視する。Legacy View は従来型の階層表示として、ファイル/フォルダの展開・折りたたみ・フルテキスト検索を低遅延で提供し、ユーザーが物理構造と論理構造を素早く行き来できるようにする。
 
-* **Legacy View**: 従来の階層型ディレクトリツリー。ファイル検索や物理構造の把握に使用。
-* **Galaxy View**:
-  * **導入タイミング**: 初期リリースでは Legacy View をデフォルトとし、Galaxy View は `v1.0` 以降で段階導入する。Galaxy View は Legacy View と役割を明確に分離し、依存関係の可視化を優先する。
-  * **構造**: LSP依存関係をノードとエッジで表現する銀河系モチーフのグラフビューで、各ノードはファイル/モジュールを、エッジは依存/呼び出しを表す。エージェントが編集する対象は `彗星`、隣接する影響範囲は `衝撃波` で視覚化することで、変更の波及をユーザーに伝える。
-  * **表示品質要件**: AIの編集対象と影響範囲を常に強調し、グラフ内の操作対象を明確にする。色/サイズ/輝度は `Agent Status`（Busy/Waiting/Error/Idle）を参照したハイライトルールに従い、ユーザーが現在の負荷を一目で把握できるようにする。
-  * **パフォーマンス**: 500 個までの可視ノードを含む更新では、Galaxy View の描画/遷移は最低45fpsを維持し、データの追加・削除・焦点移動時も GPU レベルのダブルバッファリングとインクリメンタルレイアウト更新で一貫性を保つ。500 個を超えるノードは動的に詳細度を下げ、表示外のノードを折りたたむことで、レイテンシとフレームレートを安定化させる。500 個超え時の詳細度低下はユーザーの操作によらず自動で適用され、手動でフォーカスや展開を制御するメカニズムは提供しないものとする。
-  * **アクセシビリティ**: カラーパレットは WCAG レベル AA のコントラスト比を満たし、視覚的な誤認を避けるためにエッジ/ノードに明確なラベルと代替テキストを付与する。Galaxy View の内容は Legacy View やアクセシビリティパネルで的確に列挙・検索できることを保証する。
-
-#### 3.3.1 Galaxy View のスケーリング・ヒューリスティック
-
-Galaxy View は常に 500 個以内のノードを明示的に描画することを **MUST** とし、超過時には自動で対象ノードをスコア順に絞り込む。各ノードには以下の `Focus Score` を計算し、高スコア順に描画を維持する。
-
-- `P0: Active, AI Activity` – エージェントが現在編集/生成中のファイル（`彗星`）およびその直近依存先。こうしたノードは最も高い描画優先度を **SHOULD** 持つ。
-- `P1: Focus, User Focus` – ユーザーが開いているタブやカーソル位置にあるファイル。ユーザー操作との整合性を保つため **SHOULD** 描画対象に残す。
-- `P2: Impact, Dependency Hub` – 高度な依存関係を抱える中心的モジュール。依存線の本数や `Galaxy View` 内での接続密度に応じてスコアを高める。
-- `P3: Context, Distance` – P0/P1 ノードからのグラフ距離が 1 以内のノード。文脈理解のために一段階低い優先度で保持するが、必要に応じて折りたたむ。
-
-スコアの低いノードは自動的に集約・折りたたまれ、代替表現として高レベルの「星雲（Nebula）」を用いる。`Nebula` は同一ディレクトリ内の `Focus Score` が一定未満の子ノード群をひとまとめにし、ディレクトリ単位の発光体として描画することを **SHOULD** とする。これは 500 個を超えるノード群を視覚的に維持しつつ、カメラ移動や操作のコストを削減する。
-
-外部依存（`node_modules`/`vendor` など）のノードは、ユーザーが明示的に修正対象としている場合を除きデフォルトで描画対象から除外することを **MUST** とし、必要に応じてヒエラルキーから展開できるトグルを用意する。
-
-パフォーマンス維持のため、Galaxy View はフォーカス周辺のノードのみを再配置するインクリメンタルレイアウトを **SHOULD** 用い、遠方ノードは座標を固定することで休止状態に置く。描画には同一形状のノード・エッジに対して GPUI の GPU インスタンシングを活用し、ドローコールを最小化することも **SHOULD** とする。
+- **Legacy View**: 階層的なディレクトリツリーを基盤とし、ファイルの開閉・パス表示・差分のマーカー付与を行う。Agent Status に応じたハイライトや承認済みラインの彩度調整などはこのビューで完結する。
+- **Galaxy/Nebula View**: `Nebula`/`Galaxy View` に関する機能は将来的に段階的導入される計画であり、以降のバージョンで必要な要件とヒューリスティックを別途 `specs/spec_galaxy_view.md` にまとめている。本仕様では意図的に、このビューの詳細な描画要件やパフォーマンスルールを除外する。
 
 ### 3.4 タイポグラフィとフォント
 
@@ -122,7 +102,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `Nue` は `nue-ui`（GPUI）の初期化時点で `JetBrainsMono-Regular`/`Bold`/`Italic` をバイナリに埋め込み、そのバイト列を `FontContext` に登録することで、オフライン環境や制御されたランタイムでも同一の字形を保証することを **MUST** とする。
 - 埋め込みフォントにはライセンスパッケージ（例: JetBrains Mono の SIL Open Font License）を同梱し、バイナリ内で `FontContext` Bundled Font Catalog にメタ情報（ファイル名・ライセンス）を付与することを **SHOULD** とする。
 - `FontContext` への登録は、UI 初期化の最初のフレームより前（`nue-ui` の `FontContext::register` 呼び出しの完了前）に終えておくことを **MUST** とする。フォント名のキーは `nue-font::text`, `nue-font::emphasis`, `nue-font::meta` のように命名し、描画レイヤーがキーを参照して一覧できるようにする。
-- 上記フォントを置換したい場合は、`FontContext` の `override` API を通じて別の `FontHandle` を挿入し、`Shadow Buffer` や `Galaxy View` はフォントキーを変えずに差し替えられる仕組みを維持することを **SHOULD** とする。
+- 上記フォントを置換したい場合は、`FontContext` の `override` API を通じて別の `FontHandle` を挿入し、`Shadow Buffer` や関連する UI レイヤーはフォントキーを変えずに差し替えられる仕組みを維持することを **SHOULD** とする。
 
 ---
 
@@ -134,10 +114,10 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 | --- | --- | --- | --- |
 | **FS** | `apply_patch` | 指定箇所への差分適用 | バッファ更新 + UI編集イベント発火 |
 | **FS** | `read_file` | ファイル内容の読み取り | コンテキスト取得 |
-| **VCS** | `get_status` | Gitの状態取得 | Galaxy Viewへの変更反映 |
+| **VCS** | `get_status` | Gitの状態取得 | Legacy View 等の監査パネル／差分ビューへの変更反映 |
 | **VCS** | `commit` | 変更の確定 | 履歴の保存 |
 | **Runtime** | `run_command` | テストやビルドの実行 | ターミナル出力 + 成功/失敗のフィードバック |
-| **UI** | `focus_file` | 特定ファイルへのズーム | Galaxy View上のカメラ移動 |
+| **UI** | `focus_file` | ユーザー選択中のファイル・選択箇所（行）の取得 | コンテキスト取得 |
 
 ---
 
@@ -198,7 +178,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
    `Accept` が行われると、`Shadow Buffer` の該当差分は `Editor Core` の本バッファへマージされ、`UI View` への更新イベント（差分の範囲・Agent Status）と `Audit Event` の両方を生成する。差分はマージ後に `Shadow Buffer` から削除され、ストレージに永続化されない。
 
 3. **レビュー情報**
-   `Shadow Buffer` の差分は `Galaxy View` と `Legacy View` の両方で列挙可能とし、特に `Galaxy Feedback` は対象ノードを `彗星` でハイライトし、設定された `Agent Status` に応じた輝度で表示する。差分ごとのメタ情報（例: `Approval Unit`、`Execution Context`）を UI で参照できること。
+`Shadow Buffer` の差分は Legacy View や `Command Hub` の `Approval Requests` パネルなど、既存 UI 上で列挙・レビューできること。差分ごとのメタ情報（例: `Approval Unit`、`Execution Context`）を UI で参照し、ユーザーが編集対象と承認ステータスを確認できるようにする。将来的な `Galaxy Feedback` や `Nebula` 連携は `specs/spec_galaxy_view.md` にて追加で定義する。
 
 4. **追加承認操作**
    これらの操作は v1.0 以降の段階的拡張項目とする。ToDo セクション（Sec.8）で `Reject`/`Partial Accept`/`Revert` の差分状態遷移と `Audit Event` 記録ルールを整理し、実装段階で詳細化する。
@@ -207,14 +187,14 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 `Shadow Buffer` は `Accept` に加えて `Reject`・`Partial Accept`・`Revert` の操作セットを提供し、各操作は必ず明示的な `Approval Unit`（Workspace Session / ファイル / ハンク）と組み合わせて UI に提示されることを **MUST** とする。すべての操作は `Audit Event` に `result` フィールドを含み、ユーザーや監査システムが操作の種類と影響範囲を辿れるようにする。
 
-- `Accept`（**MUST**）: 選択された `Approval Unit` の差分は `Editor Core` にマージされ、`Shadow Buffer` から削除される。`Audit Event` には `result=accepted`、`approval_unit`、`changed_range`/`file_path`、`agent_id` を含め、`UI View` は当該箇所を `Galaxy Feedback` で `彗星` として強調したまま輝度を落としつつ `Electric Lime` の完了マーカーを表示する。`Accept` は `Workspace Session` 単位および `ファイル単位` を `MUST` でサポートし、ユーザー操作が細分化できるよう `Partial Accept` により `ハンク単位` も `SHOULD` 対応する。
+- `Accept`（**MUST**）: 選択された `Approval Unit` の差分は `Editor Core` にマージされ、`Shadow Buffer` から削除される。`Audit Event` には `result=accepted`、`approval_unit`、`changed_range`/`file_path`、`agent_id` を含め、`UI View` は当該箇所に完了マーカーを表示するとともに輝度を徐々に落とすことで「処理済み」であることを示す。`Accept` は `Workspace Session` 単位および `ファイル単位` を `MUST` でサポートし、ユーザー操作が細分化できるよう `Partial Accept` により `ハンク単位` も `SHOULD` 対応する。
 - `Reject`（**SHOULD**）: ユーザーが差分を却下した場合、該当 `Shadow Buffer` エントリは破棄され、`Editor Core` や `Shadow Buffer` に変更を加えない。`Audit Event` には `result=rejected`、`reason=manual_reject`、`approval_unit`、`agent_id` を含める。`MCP Router` は同一変更に対し再度 `requires_user_consent` 承認を送り、エージェントには `message` で「差分が拒否されたため再生成してください」と返す。拒否された差分を再利用する必要がある場合は、`Command Hub` から新しい意図を発行させることを **SHOULD** とする。
 - `Partial Accept`（**SHOULD**）: 大粒度の差分を `ハンク単位`/`行単位` に分割し、それぞれ `Approval Unit` として個別の `Accept` を実行できるようにする。`Shadow Buffer` は、受け入れた部分を `Editor Core` に反映し、残留した行は新たな差分として粒度を維持する。`Audit Event` は `result=partial_accept`、`approved_ranges`（ハンクの開始・終了行）を含めて記録し、残差分には `related_event_id` を付与してトレースできるようにする。`Partial Accept` に伴う UI では、差分ビューにチェックボックス/ドラッグ選択を置き、承認済みセクションを薄く表示することを **SHOULD** とする。
 - `Revert`（**SHOULD**）: 過去に `Accept` した差分を取り消す操作であり、`Shadow Buffer` に逆向きの差分を生成して `Approval Unit` を再評価する。`Audit Event` は `result=revert`、`reverted_event_id`、`file_path` を含み、再度 `requires_user_consent` 承認が必要なものは `approval_state=pending` として処理する。`UI View` は `Revert` 予定の行を `Solar Flare` でマークし、ユーザーがキャンセルできるように `Esc` や `Undo` 操作を提供することを **SHOULD** とする。
 
 ### 4.2.2 UI / Core 整合と `Audit Event`
 
-`Shadow Buffer` での承認操作は `UI View` の差分一覧（`Command Hub` の `Approval Requests` パネル含む）と `Editor Core` の状態を常に一致させることを **MUST** とする。具体的には、`UI View` 上の操作が発火したとき、同じ `approval_unit` を含む `Audit Event` が生成され、それが `Editor Core` のマージ/削除/再生成（`Revert`）とトリガー同期すること。`Shadow Buffer` は、`Partial Accept` や `Revert` により差分の行番号が変化した場合にも `focus_id` を更新し、`Galaxy Feedback` で対象ノードを再ハイライトすることを **SHOULD** とする。
+`Shadow Buffer` での承認操作は `UI View` の差分一覧（`Command Hub` の `Approval Requests` パネル含む）と `Editor Core` の状態を常に一致させることを **MUST** とする。具体的には、`UI View` 上の操作が発火したとき、同じ `approval_unit` を含む `Audit Event` が生成され、それが `Editor Core` のマージ/削除/再生成（`Revert`）とトリガー同期すること。`Shadow Buffer` は、`Partial Accept` や `Revert` により差分の行番号が変化した場合にも `focus_id` を更新し、対象ノードを再ハイライトすることで UI 側の整合性を保つことを **SHOULD** とする。
 
 すべての承認操作について、`Audit Event` には `result`（`accepted`/`rejected`/`partial_accept`/`revert`）と併せて `approval_unit`（`workspace`/`file`/`hunk`）を必ず含めることを **MUST** とし、その情報により `App Host` の監査パネルが絞り込み可能になる。`Partial Accept` により細分化された差分は `related_event_id` で親イベントと関連づけることを **SHOULD** とし、`Revert` の再承認では同一 `policy_id` を参照して過去のキャッシュを破棄する処理を **MUST** とする。
 
@@ -250,7 +230,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
    - 各 `Audit Event` は一意の `event_id` を持ち、再送時も同一 ID で管理され、完了後に再送フラグを消去することを **SHOULD** とする。
 
 5. **監査表示**
-   - `App Host` は `Legacy View`/`Galaxy View` の監査パネルで `Audit Event` を `Workspace Session` や `Agent Status`、`Approval Unit` でフィルタ可能とすることを **SHOULD** とする。
+- `App Host` は Legacy View の監査パネルから `Audit Event` を `Workspace Session` や `Agent Status`、`Approval Unit` でフィルタ可能とし、将来の Galaxy View 統合は `specs/spec_galaxy_view.md` にて詳細を定義することを **SHOULD** とする。
 
 以上で、監査記録の生成・保持・匿名化・再送の責務が明示される。
 
@@ -318,7 +298,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 ### 5.4 フェールセーフと監査
 
-`App Host` はすべての再評価サイクルを `Audit Event`（`type=config.reload` 以上）として記録し、`Workspace Session` に配信した `config_revision` を含めて `Legacy View`/`Galaxy View` の監査パネルから追跡できるようにする。設定の差分を適用できなかった場合（例: 検証エラー、`Workspace Session` が遅延したコンポーネント）、`App Host` は 既存の設定を再登録し、該当した `ConfigChangeEvent` について `Audit Event` を `config.reload.failure` として二重記録し、ユーザーへ修正指示を送る.
+`App Host` はすべての再評価サイクルを `Audit Event`（`type=config.reload` 以上）として記録し、`Workspace Session` に配信した `config_revision` を含めて Legacy View の監査パネルから追跡できるようにする（Galaxy View への拡張は `specs/spec_galaxy_view.md` を参照）。設定の差分を適用できなかった場合（例: 検証エラー、`Workspace Session` が遅延したコンポーネント）、`App Host` は既存の設定を再登録し、該当した `ConfigChangeEvent` について `Audit Event` を `config.reload.failure` として二重記録し、ユーザーへ修正指示を送る.
 
 再評価時に `audit.queue.max` を超過するような連続的な失敗が発生した場合、`App Host` は最も古い `ConfigChangeEvent` を削除し、削除されたイベントの `event_id` を含む通知と `Audit Event` を生成することを **MUST** とする。削除前には少なくとも 30 秒の猶予を設け、その間にユーザーが手動で再適用できるようにする。
 
@@ -330,7 +310,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 2. **エージェント起動**: UIがCodex等へタスクを丸投げ。
 3. **MCP実務**: エージェントが `fs` や `runtime` ツールを駆使。
 4. **Shadow Buffer**: Coreはエージェントの編集を「未承認の差分」として保持。
-5. **Galaxy Feedback**: Galaxy View上で、AIが編集しているファイルが激しく発光（パルス）。
+5. **UI Feedback**: AIが編集しているファイルやモジュールは UI 上で強調され、状態に応じた光度やアニメーション（例: パルス）でユーザーへ進行中の変更を伝える。Galaxy/Nebula 表示の具体的な振る舞いは `specs/spec_galaxy_view.md` で定義する。
 6. **人間の承認**: ユーザーが差分を確認し、`Accept`。変更が本番バッファへマージされる。
 
 ## 6.1 Command Hub と Intent/Smart Search
