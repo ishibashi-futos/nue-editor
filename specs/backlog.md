@@ -26,6 +26,14 @@
   - Before: エージェントの `run_command` 等が workspace の境界を越えて実行される可能性と、複数 `run_command` の同時起動による衝突時のキューイングが未定義で、CI/セキュリティ境界が不明瞭であった。
   - After: `spec-nue.md` Sec.4.5 で `workspace_root` に基づく `execution_context` の強制、FSツールの Canonical 化、`ToolExecutionState`/`ToolRequestQueue` による `run_command` のライフサイクルとキュー上限、逸脱時の `Audit Event` 記録を RFC 2119 で明記した。
 
+- [x] P1: エージェントの「認可エラー」時のリカバリフロー
+  - Before: 認可拒否（deny）された際、エージェントがループ（再試行の繰り返し）に陥るのを防ぐ仕様が必要で、ユーザーに次の対応を示す指示が未定義であった。
+  - After: `spec-nue.md` Sec.4.1.4 に `resolution_hint` を含む `Audit Event`、`DeniedRequestHistory`/`retry_delay_seconds` による再試行抑制、`Feedback Loop` バナーと `ConfigChangeEvent` 連携、`blocked` ポリシーへの 24 時間抑制を RFC 2119 で規定した。
+
+- [x] P1: `ConfigChangeEvent` の `hot_reload_scope` の列挙値と依存順序
+  - Before: `hot_reload_scope` の列挙値と複数スコープにまたがる再初期化順序が未定義で、依存関係を考慮した再評価エラー時の挙動が不明確であった。
+  - After: `spec-nue.md` Sec.5.3.1 に許容列挙値（`app`/`router`/`terminal`/`editor`/`semantic`/`agent`）と「Dependency-Aware Re-init Sequence」順序を RFC 2119 で明記し、未知 scope を `hot_reloadable=false` で再起動要求、`Audit Event` に `config.reload.unknown_scope` を記録するフェールセーフを追加した。
+
 ## ToDo
 
 - [ ] P1: デザイン・カラーの具体化を進める
@@ -61,10 +69,6 @@
   - 16ms を超える候補更新遅延時の UI 表示と `Action/Navigation Mode` への案内、`nue-semantic` の遅延中の再スコアリング状態を明記する。
   - `nue-semantic` が内部リソースで解決できない場合の外部エージェント提案の制御ポリシーと、提案先プロファイルの限定：`requires_user_consent` の `Audit Event` で構成を明記。この提案を最後の手段とし、候補がない場合は「現在のコンテキストで解決不能」を UI に返す。
 
-- [ ] P1: エージェントの「認可エラー」時のリカバリフロー
-  - 認可拒否（deny）された際、エージェントがループ（再試行の繰り返し）に陥るのを防ぐ仕様が必要です。
-  - Feedback Loop: deny ユーザーへのレスポンスには、単なる拒否理由だけでなく「ユーザーに {具体的な設定項目} の変更を依頼してください」といった、エージェントが次に取るべきメタ的な指示を含める。
-
 - [ ] P1: `Shadow Buffer` の承認モデルを定義する
   - Before: `Accept` 以外（Reject/Revert/Partial Accept）が未定義で、運用手順が確立できない。
   - After: 承認操作セット、`Approval Unit`、競合時挙動を定義し、UI 操作と Core 反映ルールを一致させる。
@@ -75,4 +79,4 @@
 
 - [ ] P1: 初期リリースの `Approval Unit` を確定する
   - Before: 初期リリースは `Accept` のみと決定済みだが、承認粒度（一括固定/ファイル単位）が未定義。
-  - After: 初期 `Approval Unit` を 1 つに固定し、将来のハンク単位承認への拡張条件を仕様化する。
+  - After: 初期 `Approval Unit` を `一括` に固定し、将来のハンク単位承認への拡張条件を仕様化する。

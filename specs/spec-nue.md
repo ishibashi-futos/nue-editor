@@ -110,6 +110,16 @@ Nueは、Slackのようなマルチワークスペース管理を最上位に据
 
 ユーザーが `Accept` するまで、要求された `MCP Tool` 呼び出しはエージェントに対して明示的な `deny` として返され、エージェントは `Audit Event` で得た `message` を参照して再試行を抑制する。`requires_user_consent` のポリシーが `Shadow Buffer` の差分と紐づかない呼び出し（例: `run_command`）では、UI に `Approval Request` を表示し、`MCP Router` は `Audit Event` に `approval_unit=manual` で記録する。
 
+#### 4.1.4 Authorization Denial Feedback Loop
+
+`MCP Router` は、エージェントが繰り返し `deny` を受けたことで無限ループや過剰リトライに陥らないよう、明示的なフィードバックを提供する責務を持つ。
+
+- 毎回の `deny` に対し、`Audit Event` に `resolution_hint` を追加し、`policy.message` を含む簡潔な拒否理由に加えて「変更を求める設定キー（例: `workspace.authorization.auto_pilot=false`）」「推奨 UI 操作（例: `Command Hub` の承認パネルを開く）」が記載されることを **MUST** とする。`resolution_hint` は問題の所在を特定できる識別子（例: `config_path:key`、`policy_id`）を含めることを **SHOULD** とし、ユーザーやエージェントが容易に参照できる形式とする。
+- 同一の `agent_id`/`policy_id` に対する連続 `deny` 要求では、`MCP Router` が内部で `DeniedRequestHistory` を保持し、再試行可能となるまでの `retry_delay_seconds` を指数的にインクリメントして `Audit Event` に記録することを **MUST** とする。初期値 3 秒、最大 30 秒とし、`retry_delay` が有効な間は `Command Hub` や `Terminal` の UI で `Backoff` 表示を行い、ユーザーへ余剰な再試行を控える指示を出すことを **SHOULD** とする。
+- `requires_user_consent` ポリシーの初回 `deny` は `pending` 承認リクエストとして扱い、`approval_request_id` を `Audit Event` に含める。承認処理が完了しない間、同一要求に再アクセスがあった際は再度 `deny` を返さず `pending` ステータスと `approval_request_id` を提示することを **SHOULD** とし、エージェントが `approval_request_id` をトリガーに再送を抑止できるようにする。
+- 連続 `deny` が UI に反映されない場合、`MCP Router` は `Agent Status` を `Error` に遷移させ、`Audit Event` を通じて `App Host` に `Feedback Loop` 通知を送信することを **SHOULD** とする。`App Host`/`UI View` は `Workspace Rail` や `Command Hub` に「設定 {resolution_hint.config_path} を修正して再試行」等のバナーを表示し、関係する設定キーの `ConfigChangeEvent` を強調してユーザーが迅速に対応できるようにすることを **SHOULD** とする。
+- `blocked` ポリシーで拒否された呼び出しは、その `policy_id` に対して `DeniedRequestHistory` を 24 時間保持し、同一エージェントからの再送を即時 `deny` することを **SHOULD** とする。その際 `Audit Event` には「管理者に {policy_id} の再承認を依頼」や「外部承認フローを含む `resolution_hint`」を含めて、再試行が無意味であることを明示することを **SHOULD** とする。
+
 ### 4.2 Shadow Buffer と承認フロー
 
 `Shadow Buffer` はエージェントが行った差分編集を本バッファにマージする前に保持する構造体であり、各差分はファイル単位と `Workspace Session` 単位の両方で区分される。各差分には、発生時刻、差分の範囲、発行元エージェント、現在の `Agent Status` を付与することで、レビューと追跡が可能である。
@@ -206,6 +216,23 @@ Nueは、Slackのようなマルチワークスペース管理を最上位に据
 `Workspace Session` は自セッションに関係する `ConfigChangeEvent` を購読し、受信から 2 秒以内に適用を試行する。`ConfigChangeEvent` に含まれる各 `changed_key` にはメタデータとして `hot_reloadable`（`true`/`false`）が付与されており、`false` の場合は再起動なしには適用できない旨を示す。`Workspace Session` は `hot_reloadable=true` のキーについてのみ `Editor Core`・`MCP Router`・`Terminal Emulator` 等へ新値を反映し、`hot_reloadable=false` のキーは再起動が完了するまで旧値を保持してユーザーに通知する。通知には変更内容と再起動コマンド（例: `Restart App Host`）を含め、`App Host` が再起動済みであることを確認した後に `config_revision` を新しい値に合わせる。
 
 `Workspace Session` は `ConfigChangeEvent` に `hot_reload_scope` を含め、関連する UI/サービスを限定的に再初期化する。たとえば、`MCP Router` のポリシー定義変更は `hot_reload_scope=router` となり、当該スコープ内のコンポーネントにのみ更新通知を送る。
+
+#### 5.3.1 `hot_reload_scope` の許容値と依存順序
+
+`hot_reload_scope` は列挙値 (Enum) として次の値のみを許容し、その意味と再初期化の責務を明示することを **MUST** とする。これにより `ConfigChangeEvent` の処理側が依存関係を理解した上で一貫した再初期化を行う。
+
+| 値 | 意味 | 説明 |
+| --- | --- | --- |
+| `app` | グローバル構成 | App Host や Workspace Rail、通知系の基本設定。 |
+| `router` | 認可ポリシー | MCP Router、Authorization Policy、`external_agent_profiles` などの Gateway 設定。 |
+| `terminal` | ターミナル | PTY/スクロールバック/エンバイロメントなどの Terminal Emulator 設定。 |
+| `editor` | エディタ挙動 | フォント、レンダリング、Shadow Buffer の挙動。 |
+| `semantic` | 意図解釈 | `nue-semantic` のモデルパス・パラメータ・Local RAG インデックス。 |
+| `agent` | エージェント接続 | Codex 等の外部エージェントエンドポイント、プロンプトテンプレート。 |
+
+同一の `ConfigChangeEvent` が複数のスコープを含む場合、`App Host` は「Dependency-Aware Re-init Sequence」に従って下位レイヤーから上位レイヤーへ順次再初期化を行うことを **MUST** とする。順序は `app` → `router` → `terminal` → `editor` → `semantic` → `agent` で、各スコープは前工程の完了を待ってから初期化を開始し、失敗した場合は直ちに `Audit Event` (`type=config.reload.failure`, `hot_reload_scope=<scope>`) を発行してユーザーに通知する。
+
+`ConfigChangeEvent` に未知の `hot_reload_scope` が含まれていた場合、`Workspace Session` はその変更を再初期化不能 (`hot_reloadable=false`) と判断し、直ちにユーザーに再起動を要求する通知を出すことを **MUST** とする。加えて `App Host` は `Audit Event` (`type=config.reload.unknown_scope`, `unknown_scope=<value>`) を記録し、該当 `ConfigChangeEvent` を保持して再起動完了後に再評価する。
 
 ### 5.4 フェールセーフと監査
 

@@ -33,6 +33,9 @@
 | MCP Tool | インターフェース | Agent が Router 経由で利用する操作 API 単位。 | 具体ツール集合は仕様側で規定。 |
 | Execution Context | 実行文脈 | `MCP Router` が認可判定に用いる実行条件。 | 例: `Workspace Session`、ブランチ。 |
 | Audit Event | データ | MCP 操作・Shadow Buffer承認・認可拒否などを `event_id`/タイムスタンプ付きで記録し、`Workspace Session`/`Execution Context`/`Agent Status`/引数ハッシュを含む。初期はメモリ保持、`v1.0` 以降で JSONL へ追記する。 | ファイル保存は`audit.storage.path`に追記、`audit.retention_days` (デフォルト 30 日) で古い記録を破棄、`audit.anonymization.level` で引数/機微情報を制御、`audit.queue.max` で再送キュー上限と破棄ルールを調整。 |
+| Resolution Hint | データ | `MCP Router` が `deny` 応答に含める補助情報で、`policy.message` に加えて修正すべき設定キーや推奨 UI 操作・識別子 (`config_path:key`/`policy_id`) を提供する。 | `spec-nue.md` Sec.4.1.4 で `Audit Event` へ `resolution_hint` を含め、ユーザーが次の手順を把握できるように規定。 |
+| DeniedRequestHistory | データ構造 | `MCP Router` が同一 `agent_id`/`policy_id` の連続 `deny` を監視するために保持する履歴レコードで、再試行待機時間(`retry_delay_seconds`)や `approval_request_id` を管理する。 | `spec-nue.md` Sec.4.1.4 に指数的バックオフ (`retry_delay_seconds` 3〜30 秒) と `blocked` ポリシーで 24 時間抑制する運用を規定。 |
+| Feedback Loop | UI | `MCP Router` による連続拒否や `resolution_hint` に基づき、`Workspace Rail`/`Command Hub` がエージェント状態を `Error` へ遷移させ、バナーで設定修正を促すアラート表示のパターン。 | `spec-nue.md` Sec.4.1.4 で `App Host` に `Feedback Loop` バナーと `ConfigChangeEvent` の強調を要求。 |
 | Authorization Policy | ルール | `MCP Router` がドメイン・ツール・許可引数・実行コンテキスト・承認状態・ポリシーバージョンの組み合わせを宣言的に表現し、呼び出しごとの `deny`/`allow` を決定するルールセット。 | 各エントリは `policy_id`/`argument_constraints`/`execution_context`/`approval_state`/`effect`/`priority` を持ち、未定義呼び出しは暗黙の拒否。 |
 | Policy Evaluation Order | ルール | `MCP Router` が `Authorization Policy` を評価する決定順序。 | ドメイン/ツール一致 -> 実行コンテキスト一致 -> `deny` 評価 -> `allow` 評価 -> 暗黙拒否。 |
 | Policy Revision | 管理 | Authorization Policy が再定義されるたびにインクリメントされる数値。 | `policy_id` とセットで `Audit Event` に記録され、最新の `policy_revision` を持つエントリが評価優先される。 |
@@ -40,4 +43,5 @@
 | ToolRequestQueue | データ構造 | `MCP Router` が同一 `Workspace Session` 内の `run_command` 要求を FIFO で待機させるキュー。 | `tool.execution.queue_max_pending` を上限とし、`queue_overflow` 時に `Audit Event` を生成、`result=queue_start` 等で状態を通知する。 |
 | Config Change Event | イベント | 設定変更の差分を表す構造体で、`source`/`revision`/`changed_keys`/`previous_values`/`hot_reloadable` を含み `App Host` → `Workspace Session` 間で伝播される。 | `ConfigChangeEvent` を起点に再評価サイクルが展開する。 |
 | Config Revision | シーケンス | 設定の再評価ごとに単調増加する番号。 | `ConfigChangeEvent` には `config_revision` を含め再起動や再適用の状態を判別可能にする。 |
-| Hot Reload Scope | 範囲 | 設定変更が `Workspace Session` 内のどのコンポーネント（例: `router`）に影響するかを示す列挙値。 | `hot_reloadable=false` の変更は再起動が完了しない限り適用されない。 |
+| Hot Reload Scope | 範囲 | 設定変更が `Workspace Session` 内のどのコンポーネント（例: `router`）に影響するかを示す列挙値。 | `spec-nue.md` Sec.5.3.1 で `app`/`router`/`terminal`/`editor`/`semantic`/`agent` を明記し、`hot_reloadable=false` の変更は再起動完了まで適用されないとする。 |
+| Dependency-Aware Re-init Sequence | プロセス | `ConfigChangeEvent` が複数の `hot_reload_scope` を含む場合に下位レイヤーから上位レイヤーへ順次再初期化する再評価シーケンス。 | `spec-nue.md` Sec.5.3.1 で `app`→`router`→`terminal`→`editor`→`semantic`→`agent` の順序と `Audit Event` の失敗記録を定義。 |
