@@ -132,6 +132,19 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 `Structure Path` は `Legacy View`・`Minimap`・`Command Hub` のいずれのモードにおいても現在位置と未処理差分をつなぎとめる役割を果たし、ユーザーが自身の作業対象を見失わないよう一貫したナビゲーション体験を提供することを **MUST** とする。
 
+### 3.7 Smart Gutter
+
+`Smart Gutter` は、エディタの行番号領域の隣に配置されたコンテキスト情報表示領域であり、`Shadow Buffer` 上の AI 差分、`Git` 差分、`Agent Status`、および `Audit Event` の状態を一目で識別できるようにすることを **MUST** とする。`Smart Gutter` は `Structure Path`/`Command Hub`/`Minimap` と双方向で同期し、線の左右どちらに差分が存在するかや承認リクエストの焦点がどこにあるかを明確に伝える。
+
+- `Smart Gutter` は、該当ラインに関連付けられた `Shadow Buffer` エントリが存在する場合、ライン左に縦に伸びる `Solar Flare` の `AI Pulse Indicator` を表示し、`Agent Status` に応じてパルスの `Opacity`/`Motion` を変化させることで、AI のアクティビティを可視化することを **MUST** とする。`Solar Flare` の点滅は `Agent Status=Waiting` の `Approval Request` を、持続的な `Neon Cyan` の発光は `Busy` な生成処理を、それぞれ示す。
+- `Smart Gutter` は、`Shadow Buffer` の差分が `accept` されると `Electric Lime` の細いグロー表示へ滑らかに遷移し、`Audit Event` の `result=accepted` を反映することで、承認済みの行を行番号と共に淡色化して視覚的に完了を伝えることを **MUST** とする。`result=denied` あるいは `partial_accept` 状態では `Solar Flare` と `Midnight Glass` の二重線を用いて、再レビューが必要な行として強調することを **SHOULD** とする。
+- `Smart Gutter` は、`Git` 差分（追加/変更/削除）がある行に対して `Midnight Glass` の図形（追加: 上向き三角、削除: 下向き三角、変更: 横のバー）を描き、`Shadow Buffer` の AI 差分表示と重なった場合は `AI` 表示を優先しつつ `Git` 残差として細い輪郭を並列表示することで、同一行の両要素を区別できるようにすることを **SHOULD** とする。
+- `Smart Gutter` のインジケーターをユーザーがクリックまたはキーボードフォーカスした際、`Command Hub` の該当 `Approval Request` を呼び出し、`Shadow Buffer` エントリの差分詳細（変更前後のスニペット・`Audit Event` 参照）と共に `Command Hub` 内で `Accept` を実行できる操作フローを **MUST** 提供する。`Smart Gutter` が `Command Hub` へ渡す `approval_unit`/`focus_id` は `Audit Event` の `related_event_id` と一致させ、クリック後 50ms 以内に `Command Hub`/`Minimap`/`Structure Path` のハイライト状態を更新することを **SHOULD** とする。
+- `Smart Gutter` は `Audit Event` の `result=pending` / `result=queued` など、まだ `Approval` が完了していない行について `Neon Cyan` の進捗リング（1行につき最大 2 本）を添えて `Minimap` の `focus_id` を追跡し、`focus_id` が変更された際は該当行の `Smart Gutter` 表示を再描画して `Command Hub` の `Backoff State` を反映することを **SHOULD** とする。`Audit Event` で `resolution_hint` が更新された場合は、`Smart Gutter` のツールチップで具体的な修正設定キー/ポリシー ID を表示することを **SHOULD** とする。
+- `Smart Gutter` は、行番号上に表示される補助アイコン（例: `AI Pulse`/`Git Delta`）に `glyph`/`tooltip` を持たせ、アクセシビリティ要件に基づき `Glyph` を `Agent Status` ごとに一意化することを **MUST** とする。高彩度が利用できないモードでは `Glyph` の形状変化とテキストラベル（例: `AI`/`Git`/`Error`）で状態を伝えることを **SHOULD** とする。
+
+`Smart Gutter` の仕様は `specs/glossary.md` に新しい用語として定義し、`specs/backlog.md` に `Smart Gutter` タスクの解決と `Command Hub`/`Shadow Buffer` との依存関係を追記しておくことを **MUST** とする。
+
 ---
 
 ## 4. MCP (Model Context Protocol) ツール仕様

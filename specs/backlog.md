@@ -65,13 +65,13 @@
   - Before: エディタ上部に階層パスを表示する構造/動作要件が未定義で、Command Hub・Shadow Buffer・Legacy View との同期と操作仕様が曖昧であった。
   - After: `spec-nue.md` Sec.3.6 に Structure Path の表示トリガー、差分/承認マーカー、Shadow Buffer/Command Hub/Minimap との同期ルール、相互作用・アクセシビリティ要件を RFC 2119 で文書化した。
 
+- [x] P2: Smart Gutter 表示
+  - Before: 行番号領域の差分表示や AI 活動インジケーター、`Audit Event` 連携の UI 側要件が未定義で、Command Hub/Minimap との同期方法も未整備。
+  - After: `spec-nue.md` Sec.3.7 に Smart Gutter の `AI Pulse Indicator`/`Git Delta` 表示、`Audit Event` の `result`・`resolution_hint` 連携、`Glyph` によるアクセシビリティ表現、Command Hub/Minimap/Structure Path へのフォーカス同期を RFC 2119 で定義した。
+
 
 ## ToDo
 
-
-- [ ] P2: Smart Gutter
-  - 行番号の隣に、Gitの差分（既存）と AI の Shadow Buffer 差分を区別して表示。
-  - AIによる変更行には特殊な「AIパルス・インジケーター」を表示し、クリックでその行の承認/却下メニューをポップアップ。
 
 - [ ] P1: Global search
   - 複数ファイルに跨った検索
