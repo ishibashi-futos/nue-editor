@@ -3273,6 +3273,7 @@ dependencies = [
  "anyhow",
  "nue-config",
  "nue-mcp",
+ "nue-semantic",
  "ropey",
 ]
 
@@ -3284,6 +3285,10 @@ dependencies = [
  "serde_json",
  "tokio",
 ]
+
+[[package]]
+name = "nue-semantic"
+version = "0.1.0"
 
 [[package]]
 name = "nue-ui"

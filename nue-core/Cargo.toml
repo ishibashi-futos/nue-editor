@@ -7,4 +7,5 @@ edition = "2024"
 anyhow = "1.0.101"
 nue-config = { version = "0.1.0", path = "../nue-config" }
 nue-mcp = { version = "0.1.0", path = "../nue-mcp" }
+nue-semantic = { version = "0.1.0", path = "../nue-semantic" }
 ropey = "1.6.1"

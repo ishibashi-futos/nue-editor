@@ -108,7 +108,7 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
 
 これらのカラールールは `nue-ui` の GPUI 定義に反映し、パレットを変更する場合はいずれの用途が影響を受けるかを追跡できるようデザインシステムに記録することを **SHOULD** とする。
 
-アクセシビリティや高彩度モードといった特別対応は、本アプリケーションが開発者個人の利用を想定しているため、主要仕様としては取り扱わない。ただし、暫定的な検討内容やトリガー候補は `specs/spec_accessibility.md` でまとめており、必要に応じてそちらを参照する。
+アクセシビリティや高彩度モードといった特別対応は、本アプリケーションが開発者個人の利用を想定しているため、主要仕様としては取り扱わない。ただし、暫定的な検討内容やトリガー候補は `./features/spec_accessibility.md` でまとめており、必要に応じてそちらを参照する。
 
 #### 3.1.2 ワークスペース・レイル
 
@@ -124,7 +124,7 @@ Nue は UI レイヤーごとに以下の色を採用し、役割ごとの区分
 ヘッダーのトグルボタンにより複数モードを準備する設計ではあるが、初期リリースでは Legacy View を中心に据え、ディレクトリツリーを活用したファイル検索と構造把握を重視する。Legacy View は従来型の階層表示として、ファイル/フォルダの展開・折りたたみ・フルテキスト検索を低遅延で提供し、ユーザーが物理構造と論理構造を素早く行き来できるようにする。
 
 - **Legacy View**: 階層的なディレクトリツリーを基盤とし、ファイルの開閉・パス表示・差分のマーカー付与を行う。Agent Status に応じたハイライトや承認済みラインの彩度調整などはこのビューで完結する。
-- **Galaxy/Nebula View**: `Nebula`/`Galaxy View` に関する機能は将来的に段階的導入される計画であり、以降のバージョンで必要な要件とヒューリスティックを別途 `specs/spec_galaxy_view.md` にまとめている。本仕様では意図的に、このビューの詳細な描画要件やパフォーマンスルールを除外する。
+- **Galaxy/Nebula View**: `Nebula`/`Galaxy View` に関する機能は将来的に段階的導入される計画であり、以降のバージョンで必要な要件とヒューリスティックを別途 `./features/spec_galaxy_view.md` にまとめている。本仕様では意図的に、このビューの詳細な描画要件やパフォーマンスルールを除外する。
 
 #### 3.1.4 タイポグラフィ / フォント埋め込み / FontContext
 
@@ -202,7 +202,6 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 - `Smart Gutter` のインジケーターをユーザーがクリックまたはキーボードフォーカスした際、`Command Hub` の該当 `Approval Request` を呼び出し、`Shadow Buffer` エントリの差分詳細（変更前後のスニペット・`Audit Event` 参照）と共に `Command Hub` 内で `Accept` を実行できる操作フローを **MUST** 提供する。`Smart Gutter` が `Command Hub` へ渡す `approval_unit`/`focus_id` は `Audit Event` の `related_event_id` と一致させ、クリック後 50ms 以内に `Command Hub`/`Minimap`/`Structure Path` のハイライト状態を更新することを **SHOULD** とする。
 - `Smart Gutter` は `Audit Event` の `result=pending` / `result=queued` など、まだ `Approval` が完了していない行について `Neon Cyan` の進捗リング（1行につき最大 2 本）を添えて `Minimap` の `focus_id` を追跡し、`focus_id` が変更された際は該当行の `Smart Gutter` 表示を再描画して `Command Hub` の `Backoff State` を反映することを **SHOULD** とする。`Audit Event` で `resolution_hint` が更新された場合は、`Smart Gutter` のツールチップで具体的な修正設定キー/ポリシー ID を表示することを **SHOULD** とする。
 
-`Smart Gutter` の仕様は `specs/glossary.md` に新しい用語として定義し、`specs/backlog.md` に `Smart Gutter` タスクの解決と `Command Hub`/`Shadow Buffer` との依存関係を追記しておくことを **MUST** とする。
 
 ###### 3.1.5.4.1 オーバーレイのスタッキング・コンテキスト
 
@@ -304,7 +303,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
    `Accept` が行われると、`Shadow Buffer` の該当差分は `Editor Core` の本バッファへマージされ、`UI View` への更新イベント（差分の範囲・Agent Status）と `Audit Event` の両方を生成する。差分はマージ後に `Shadow Buffer` から削除され、ストレージに永続化されない。
 
 3. **レビュー情報**
-`Shadow Buffer` の差分は Legacy View や `Command Hub` の `Approval Requests` パネルなど、既存 UI 上で列挙・レビューできること。差分ごとのメタ情報（例: `Approval Unit`、`Execution Context`）を UI で参照し、ユーザーが編集対象と承認ステータスを確認できるようにする。将来的な `Galaxy Feedback` や `Nebula` 連携は `specs/spec_galaxy_view.md` にて追加で定義する。
+`Shadow Buffer` の差分は Legacy View や `Command Hub` の `Approval Requests` パネルなど、既存 UI 上で列挙・レビューできること。差分ごとのメタ情報（例: `Approval Unit`、`Execution Context`）を UI で参照し、ユーザーが編集対象と承認ステータスを確認できるようにする。将来的な `Galaxy Feedback` や `Nebula` 連携は `./features/spec_galaxy_view.md` にて追加で定義する。
 
 4. **追加承認操作**
    これらの操作は v1.0 以降の段階的拡張項目とする。ToDo セクション（Sec.8）で `Reject`/`Partial Accept`/`Revert` の差分状態遷移と `Audit Event` 記録ルールを整理し、実装段階で詳細化する。
@@ -356,7 +355,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
    - 各 `Audit Event` は一意の `event_id` を持ち、再送時も同一 ID で管理され、完了後に再送フラグを消去することを **SHOULD** とする。
 
 5. **監査表示**
-- `App Host` は Legacy View の監査パネルから `Audit Event` を `Workspace Session` や `Agent Status`、`Approval Unit` でフィルタ可能とし、将来の Galaxy View 統合は `specs/spec_galaxy_view.md` にて詳細を定義することを **SHOULD** とする。
+- `App Host` は Legacy View の監査パネルから `Audit Event` を `Workspace Session` や `Agent Status`、`Approval Unit` でフィルタ可能とし、将来の Galaxy View 統合は `./features/spec_galaxy_view.md` にて詳細を定義することを **SHOULD** とする。
 
 以上で、監査記録の生成・保持・匿名化・再送の責務が明示される。
 
@@ -424,7 +423,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 
 #### 3.3.4 フェールセーフと監査
 
-`App Host` はすべての再評価サイクルを `Audit Event`（`type=config.reload` 以上）として記録し、`Workspace Session` に配信した `config_revision` を含めて Legacy View の監査パネルから追跡できるようにする（Galaxy View への拡張は `specs/spec_galaxy_view.md` を参照）。設定の差分を適用できなかった場合（例: 検証エラー、`Workspace Session` が遅延したコンポーネント）、`App Host` は既存の設定を再登録し、該当した `ConfigChangeEvent` について `Audit Event` を `config.reload.failure` として二重記録し、ユーザーへ修正指示を送る.
+`App Host` はすべての再評価サイクルを `Audit Event`（`type=config.reload` 以上）として記録し、`Workspace Session` に配信した `config_revision` を含めて Legacy View の監査パネルから追跡できるようにする（Galaxy View への拡張は `./features/spec_galaxy_view.md` を参照）。設定の差分を適用できなかった場合（例: 検証エラー、`Workspace Session` が遅延したコンポーネント）、`App Host` は既存の設定を再登録し、該当した `ConfigChangeEvent` について `Audit Event` を `config.reload.failure` として二重記録し、ユーザーへ修正指示を送る.
 
 再評価時に `audit.queue.max` を超過するような連続的な失敗が発生した場合、`App Host` は最も古い `ConfigChangeEvent` を削除し、削除されたイベントの `event_id` を含む通知と `Audit Event` を生成することを **MUST** とする。削除前には少なくとも 30 秒の猶予を設け、その間にユーザーが手動で再適用できるようにする。
 
@@ -436,7 +435,7 @@ Nue の UI は背景のダークトーンとネオン系アクセントのコン
 2. **エージェント起動**: UIがCodex等へタスクを丸投げ。
 3. **MCP実務**: エージェントが `fs` や `runtime` ツールを駆使。
 4. **Shadow Buffer**: Coreはエージェントの編集を「未承認の差分」として保持。
-5. **UI Feedback**: AIが編集しているファイルやモジュールは UI 上で強調され、状態に応じた光度やアニメーション（例: パルス）でユーザーへ進行中の変更を伝える。Galaxy/Nebula 表示の具体的な振る舞いは `specs/spec_galaxy_view.md` で定義する。
+5. **UI Feedback**: AIが編集しているファイルやモジュールは UI 上で強調され、状態に応じた光度やアニメーション（例: パルス）でユーザーへ進行中の変更を伝える。Galaxy/Nebula 表示の具体的な振る舞いは `./features/spec_galaxy_view.md` で定義する。
 6. **人間の承認**: ユーザーが差分を確認し、`Accept`。変更が本番バッファへマージされる。
 
 #### 3.4.1 Command Hub の構造とインテント候補
@@ -602,20 +601,6 @@ Atomic Intent の承認操作については、`Command Hub` が「すべて承�
 
 ### 3.6 未解決課題 / ToDo
 
-本仕様では、`specs/backlog.md` に ToDo 形式で追跡している項目を逐次列挙し、Sec.4.2.1 で言及した `Reject`/`Partial Accept`/`Revert` のような拡張を忘れないように管理することを **MUST** とする。
-
 #### 3.6.1 承認フロー拡張
 
-`Shadow Buffer` の `Reject`/`Partial Accept`/`Revert` に関して、承認単位（ハンク/行/ファイル/セッション）の組み合わせ、`Audit Event` に含めるフィールド、UI での差分再表示・再承認の制御を未定義のままにしないことを **MUST** とする。詳細は `specs/ask.md` の Q19 に追跡しており、該当項目が具体化するまでは本仕様の該当節を再レビューして不足がないか確認することを **SHOULD** とする。
-
-#### 3.6.2 補助 UI 強化
-
-Minimap や Smart Gutter、Structure Path のような新規ビューは、`Shadow Buffer` や差分データ、`Agent Status` との整合性を明示しないまま構築を進めてはならない。これらの仕様は `specs/backlog.md` の該当 ToDo（`Minimap` / `Smart Gutter` / `Structure Path`）に目標と依存関係を残し、実装検討時に再度 `Command Hub`/`Legacy View` とのデータ連携を文書化することを **SHOULD** とする。
-
-#### 3.6.3 検索 / セッション / リソース管理の未完項目
-
-Global Search、Semantic Search Integration、タブ・レイアウト管理、Sleep 機能、`nue-semantic` のシングルトン運用など、ワークスペースや AI リソースに関わる機能要望は `specs/backlog.md` の該当 ToDo に記録しておき、仕様化に着手する際は `App Host`/`Workspace Session` の構成と整合する形で取り込む必要がある。これらの項目は `nue-semantic` の応答性や `App Host` のメモリ制御戦略に影響するため、再設計時には関連する `ConfigChangeEvent` の `hot_reload_scope` と整合性を取ることを **SHOULD** とする。
-
-#### 3.6.4 外部エージェント連携 / フォント周りの未解決
-
-外部エージェントへの問い合わせ先のプロファイルや管理フローについては `specs/ask.md` Q15 で確認中であり、承認制御や `Audit Event` 連携の仕様が固まるまでは `nue-semantic` による提案を自動化しない運用を **MUST** とする。また、JetBrains Mono と日本語/特殊記号フォントの混在に関する要件は Q20 で再確認する予定で、`FontContext` のフォールバック順序に変更が生じた場合は Sec.3.4 の記述を即座に更新することを **SHOULD** とする。
+`Shadow Buffer` の `Reject`/`Partial Accept`/`Revert` に関して、承認単位（ハンク/行/ファイル/セッション）の組み合わせ、`Audit Event` に含めるフィールド、UI での差分再表示・再承認の制御を未定義のままにしないことを **MUST** とする。
