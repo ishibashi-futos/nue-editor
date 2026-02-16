@@ -49,6 +49,61 @@ pub enum PickerCancelOutcome {
     BackToListing,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandPaletteShortcut {
+    CmdShiftP,
+    CtrlShiftP,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandHubKeyInput {
+    CmdShiftP,
+    CtrlShiftP,
+    Escape,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandHubVisibilityState {
+    Hidden,
+    Visible,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandHubOpenReason {
+    Shortcut(CommandPaletteShortcut),
+    LauncherClick,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandHubCloseReason {
+    EscapeKey,
+    OutsideClick,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandHubVisibilitySnapshot {
+    pub state: CommandHubVisibilityState,
+    pub revision: u64,
+    pub last_open_reason: Option<CommandHubOpenReason>,
+    pub last_close_reason: Option<CommandHubCloseReason>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandHubVisibilityOutcome {
+    Noop,
+    Opened(CommandHubOpenReason),
+    Closed(CommandHubCloseReason),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandHubVisibilityController {
+    state: CommandHubVisibilityState,
+    revision: u64,
+    last_open_reason: Option<CommandHubOpenReason>,
+    last_close_reason: Option<CommandHubCloseReason>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandPicker {
     state: PickerViewState,
@@ -201,6 +256,78 @@ impl CommandPicker {
 }
 
 impl Default for CommandPicker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CommandHubVisibilityController {
+    pub fn new() -> Self {
+        Self {
+            state: CommandHubVisibilityState::Hidden,
+            revision: 0,
+            last_open_reason: None,
+            last_close_reason: None,
+        }
+    }
+
+    pub fn snapshot(&self) -> CommandHubVisibilitySnapshot {
+        CommandHubVisibilitySnapshot {
+            state: self.state,
+            revision: self.revision,
+            last_open_reason: self.last_open_reason,
+            last_close_reason: self.last_close_reason,
+        }
+    }
+
+    pub fn handle_key_input(&mut self, input: CommandHubKeyInput) -> CommandHubVisibilityOutcome {
+        match input {
+            CommandHubKeyInput::CmdShiftP => self.open(CommandHubOpenReason::Shortcut(
+                CommandPaletteShortcut::CmdShiftP,
+            )),
+            CommandHubKeyInput::CtrlShiftP => self.open(CommandHubOpenReason::Shortcut(
+                CommandPaletteShortcut::CtrlShiftP,
+            )),
+            CommandHubKeyInput::Escape => self.close(CommandHubCloseReason::EscapeKey),
+            CommandHubKeyInput::Other => CommandHubVisibilityOutcome::Noop,
+        }
+    }
+
+    pub fn open_by_launcher_click(&mut self) -> CommandHubVisibilityOutcome {
+        self.open(CommandHubOpenReason::LauncherClick)
+    }
+
+    pub fn close_by_outside_click(&mut self) -> CommandHubVisibilityOutcome {
+        self.close(CommandHubCloseReason::OutsideClick)
+    }
+
+    fn open(&mut self, reason: CommandHubOpenReason) -> CommandHubVisibilityOutcome {
+        if self.state == CommandHubVisibilityState::Visible {
+            return CommandHubVisibilityOutcome::Noop;
+        }
+
+        self.state = CommandHubVisibilityState::Visible;
+        self.revision += 1;
+        self.last_open_reason = Some(reason);
+        self.last_close_reason = None;
+
+        CommandHubVisibilityOutcome::Opened(reason)
+    }
+
+    fn close(&mut self, reason: CommandHubCloseReason) -> CommandHubVisibilityOutcome {
+        if self.state == CommandHubVisibilityState::Hidden {
+            return CommandHubVisibilityOutcome::Noop;
+        }
+
+        self.state = CommandHubVisibilityState::Hidden;
+        self.revision += 1;
+        self.last_close_reason = Some(reason);
+
+        CommandHubVisibilityOutcome::Closed(reason)
+    }
+}
+
+impl Default for CommandHubVisibilityController {
     fn default() -> Self {
         Self::new()
     }
@@ -422,5 +549,103 @@ mod tests {
 
         assert_eq!(picker.cancel(), PickerCancelOutcome::BackToListing);
         assert_eq!(picker.snapshot().state, PickerViewState::Listing);
+    }
+
+    #[test]
+    fn cmd_shift_p入力でcommand_hubを開く() {
+        let mut controller = CommandHubVisibilityController::new();
+
+        let outcome = controller.handle_key_input(CommandHubKeyInput::CmdShiftP);
+
+        assert_eq!(
+            outcome,
+            CommandHubVisibilityOutcome::Opened(CommandHubOpenReason::Shortcut(
+                CommandPaletteShortcut::CmdShiftP
+            ))
+        );
+        assert_eq!(
+            controller.snapshot(),
+            CommandHubVisibilitySnapshot {
+                state: CommandHubVisibilityState::Visible,
+                revision: 1,
+                last_open_reason: Some(CommandHubOpenReason::Shortcut(
+                    CommandPaletteShortcut::CmdShiftP
+                )),
+                last_close_reason: None,
+            }
+        );
+    }
+
+    #[test]
+    fn ctrl_shift_p入力でもcommand_hubを開く() {
+        let mut controller = CommandHubVisibilityController::new();
+
+        let outcome = controller.handle_key_input(CommandHubKeyInput::CtrlShiftP);
+
+        assert_eq!(
+            outcome,
+            CommandHubVisibilityOutcome::Opened(CommandHubOpenReason::Shortcut(
+                CommandPaletteShortcut::CtrlShiftP
+            ))
+        );
+        assert_eq!(
+            controller.snapshot().state,
+            CommandHubVisibilityState::Visible
+        );
+    }
+
+    #[test]
+    fn ランチャークリックでcommand_hubを開く() {
+        let mut controller = CommandHubVisibilityController::new();
+
+        let outcome = controller.open_by_launcher_click();
+
+        assert_eq!(
+            outcome,
+            CommandHubVisibilityOutcome::Opened(CommandHubOpenReason::LauncherClick)
+        );
+        assert_eq!(
+            controller.snapshot().state,
+            CommandHubVisibilityState::Visible
+        );
+    }
+
+    #[test]
+    fn 表示中にescape入力するとcommand_hubを閉じる() {
+        let mut controller = CommandHubVisibilityController::new();
+        let _ = controller.open_by_launcher_click();
+
+        let outcome = controller.handle_key_input(CommandHubKeyInput::Escape);
+
+        assert_eq!(
+            outcome,
+            CommandHubVisibilityOutcome::Closed(CommandHubCloseReason::EscapeKey)
+        );
+        assert_eq!(
+            controller.snapshot(),
+            CommandHubVisibilitySnapshot {
+                state: CommandHubVisibilityState::Hidden,
+                revision: 2,
+                last_open_reason: Some(CommandHubOpenReason::LauncherClick),
+                last_close_reason: Some(CommandHubCloseReason::EscapeKey),
+            }
+        );
+    }
+
+    #[test]
+    fn 表示中に別要素をクリックするとcommand_hubを閉じる() {
+        let mut controller = CommandHubVisibilityController::new();
+        let _ = controller.handle_key_input(CommandHubKeyInput::CmdShiftP);
+
+        let outcome = controller.close_by_outside_click();
+
+        assert_eq!(
+            outcome,
+            CommandHubVisibilityOutcome::Closed(CommandHubCloseReason::OutsideClick)
+        );
+        assert_eq!(
+            controller.snapshot().state,
+            CommandHubVisibilityState::Hidden
+        );
     }
 }
