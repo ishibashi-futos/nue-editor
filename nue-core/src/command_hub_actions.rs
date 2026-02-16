@@ -119,7 +119,8 @@ pub enum CommandHubDispatchOutcome {
     NeedsConfirmation { candidate_id: String },
     Executed(CommandActionEvent),
     Failed(CommandActionError),
-    Canceled { candidate_id: Option<String> },
+    Closed { candidate_id: Option<String> },
+    BackToListing { candidate_id: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,13 +173,19 @@ impl CommandHubActionModel {
         }
 
         match (command.domain.as_str(), command.verb.as_str()) {
-            ("workspace", "list") => workspace_candidates(&self.workspaces, "open", false),
-            ("workspace", "remove") => workspace_candidates(&self.workspaces, "remove", true),
-            ("pane", "list") => pane_candidates(&self.panes, "open"),
-            ("pane", "close") => pane_candidates(&self.panes, "close"),
-            ("terminal", "list") => terminal_candidates(&self.terminals, "open", false),
+            ("workspace", "list") => {
+                workspace_candidates_for_target(command, &self.workspaces, "open", false)
+            }
+            ("workspace", "remove") => {
+                workspace_candidates_for_target(command, &self.workspaces, "remove", true)
+            }
+            ("pane", "list") => pane_candidates_for_target(command, &self.panes, "open"),
+            ("pane", "close") => pane_candidates_for_target(command, &self.panes, "close"),
+            ("terminal", "list") => {
+                terminal_candidates_for_target(command, &self.terminals, "open", false)
+            }
             ("terminal", "close") | ("terminal", "kill") => {
-                terminal_candidates(&self.terminals, "close", true)
+                terminal_candidates_for_target(command, &self.terminals, "close", true)
             }
             _ => Vec::new(),
         }
@@ -571,9 +578,11 @@ pub fn dispatch_confirmed_action(
 pub fn dispatch_cancel_action(session: &mut CommandHubSession) -> CommandHubDispatchOutcome {
     match session.cancel_picker() {
         PickerCancelOutcome::Noop => CommandHubDispatchOutcome::NoSelection,
-        PickerCancelOutcome::Closed { candidate_id }
-        | PickerCancelOutcome::BackToListing { candidate_id } => {
-            CommandHubDispatchOutcome::Canceled { candidate_id }
+        PickerCancelOutcome::Closed { candidate_id } => {
+            CommandHubDispatchOutcome::Closed { candidate_id }
+        }
+        PickerCancelOutcome::BackToListing { candidate_id } => {
+            CommandHubDispatchOutcome::BackToListing { candidate_id }
         }
     }
 }
@@ -622,6 +631,22 @@ fn workspace_candidates(
         .collect()
 }
 
+fn workspace_candidates_for_target(
+    command: &ParsedCommand,
+    workspaces: &[WorkspaceItem],
+    verb: &str,
+    requires_confirmation: bool,
+) -> Vec<PickerCandidate> {
+    if command.target.trim().is_empty() {
+        return workspace_candidates(workspaces, verb, requires_confirmation);
+    }
+
+    let Some(index) = workspace_index_by_target(workspaces, command.target.as_str()) else {
+        return Vec::new();
+    };
+    workspace_candidates(&workspaces[index..index + 1], verb, requires_confirmation)
+}
+
 fn pane_candidates(panes: &[PaneItem], verb: &str) -> Vec<PickerCandidate> {
     panes
         .iter()
@@ -637,6 +662,21 @@ fn pane_candidates(panes: &[PaneItem], verb: &str) -> Vec<PickerCandidate> {
             requires_confirmation: false,
         })
         .collect()
+}
+
+fn pane_candidates_for_target(
+    command: &ParsedCommand,
+    panes: &[PaneItem],
+    verb: &str,
+) -> Vec<PickerCandidate> {
+    if command.target.trim().is_empty() {
+        return pane_candidates(panes, verb);
+    }
+
+    let Some(index) = pane_index_by_target(panes, command.target.as_str()) else {
+        return Vec::new();
+    };
+    pane_candidates(&panes[index..index + 1], verb)
 }
 
 fn terminal_candidates(
@@ -658,6 +698,22 @@ fn terminal_candidates(
             requires_confirmation,
         })
         .collect()
+}
+
+fn terminal_candidates_for_target(
+    command: &ParsedCommand,
+    terminals: &[TerminalItem],
+    verb: &str,
+    requires_confirmation: bool,
+) -> Vec<PickerCandidate> {
+    if command.target.trim().is_empty() {
+        return terminal_candidates(terminals, verb, requires_confirmation);
+    }
+
+    let Some(index) = terminal_index_by_target(terminals, command.target.as_str()) else {
+        return Vec::new();
+    };
+    terminal_candidates(&terminals[index..index + 1], verb, requires_confirmation)
 }
 
 fn workspace_display_name(root_path: &str) -> String {
@@ -927,6 +983,34 @@ mod tests {
     }
 
     #[test]
+    fn 破壊的コマンド候補はtarget指定時に対象のみに絞り込む() {
+        let model = model();
+
+        let workspace_candidates =
+            model.candidates_for(&action_command("workspace", "remove", "workspace-2"));
+        assert_eq!(workspace_candidates.len(), 1);
+        assert_eq!(
+            workspace_candidates[0].command,
+            action_command("workspace", "remove", "workspace-2")
+        );
+
+        let pane_candidates = model.candidates_for(&action_command("pane", "close", "pane-2"));
+        assert_eq!(pane_candidates.len(), 1);
+        assert_eq!(
+            pane_candidates[0].command,
+            action_command("pane", "close", "pane-2")
+        );
+
+        let terminal_candidates =
+            model.candidates_for(&action_command("terminal", "kill", "terminal-1"));
+        assert_eq!(terminal_candidates.len(), 1);
+        assert_eq!(
+            terminal_candidates[0].command,
+            action_command("terminal", "close", "terminal-1")
+        );
+    }
+
+    #[test]
     fn selected_openは解決不能時に理由付きエラーを返す() {
         let mut model = model();
         model.set_selected_text(Some("ftp://example.com/file".to_string()));
@@ -954,7 +1038,21 @@ mod tests {
         );
         assert_eq!(
             dispatch_cancel_action(&mut session),
-            CommandHubDispatchOutcome::Canceled {
+            CommandHubDispatchOutcome::BackToListing {
+                candidate_id: Some(candidate.id),
+            }
+        );
+    }
+
+    #[test]
+    fn dispatchは一覧表示中キャンセルをclosedとして通知する() {
+        let mut session = CommandHubSession::new();
+        let candidate = destructive_workspace_candidate("workspace-2");
+        session.apply_input("> Workspace: Remove", vec![candidate.clone()]);
+
+        assert_eq!(
+            dispatch_cancel_action(&mut session),
+            CommandHubDispatchOutcome::Closed {
                 candidate_id: Some(candidate.id),
             }
         );
