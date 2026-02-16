@@ -35,12 +35,15 @@ pub enum EditorCommand {
     QuickOpen,
     FindInFile,
     FindInWorkspace,
+    Copy,
+    OpenMarkdownMenu,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SaveTrigger {
     Manual,
     Shortcut(KeyChord),
+    ContextMenu,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +120,8 @@ pub enum CommandExecutionOutcome {
     QuickOpen,
     FindInFile,
     FindInWorkspace,
+    Copy(CopyOutcome),
+    OpenMarkdownMenu,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,6 +131,40 @@ pub enum ShortcutDispatchOutcome {
         command: EditorCommand,
         outcome: CommandExecutionOutcome,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EditorContextMenu {
+    pub is_open: bool,
+    pub target_file_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditorContextMenuItem {
+    Save,
+    Copy,
+    MarkdownMenu,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenEditorContextMenuOutcome {
+    Opened { file_path: PathBuf },
+    NoBuffer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyOutcome {
+    NoBuffer,
+    Copied,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExecuteEditorContextMenuOutcome {
+    Executed {
+        item: EditorContextMenuItem,
+        outcome: CommandExecutionOutcome,
+    },
+    ContextMenuClosed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,6 +199,27 @@ pub struct ShortcutDispatchedEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextMenuOpenedEvent {
+    pub file_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextMenuItemExecutedEvent {
+    pub file_path: PathBuf,
+    pub item: EditorContextMenuItem,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CopyRequestedEvent {
+    pub file_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkdownMenuRequestedEvent {
+    pub file_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedEvent {
     pub file_path: PathBuf,
     pub revision: u64,
@@ -174,12 +234,17 @@ pub enum EditorCoreEvent {
     Saved(SavedEvent),
     ShortcutRegistered(ShortcutRegisteredEvent),
     ShortcutDispatched(ShortcutDispatchedEvent),
+    ContextMenuOpened(ContextMenuOpenedEvent),
+    ContextMenuItemExecuted(ContextMenuItemExecutedEvent),
+    CopyRequested(CopyRequestedEvent),
+    MarkdownMenuRequested(MarkdownMenuRequestedEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditorCore {
     active_buffer: Option<EditorBuffer>,
     shortcuts: HashMap<KeyChord, EditorCommand>,
+    context_menu: EditorContextMenu,
     events: VecDeque<EditorCoreEvent>,
 }
 
@@ -188,6 +253,7 @@ impl EditorCore {
         Self {
             active_buffer: None,
             shortcuts: HashMap::new(),
+            context_menu: EditorContextMenu::default(),
             events: VecDeque::new(),
         }
     }
@@ -203,6 +269,7 @@ impl EditorCore {
         let snapshot = buffer.snapshot();
 
         self.active_buffer = Some(buffer);
+        self.close_context_menu();
         self.events
             .push_back(EditorCoreEvent::BufferOpened(BufferOpenedEvent {
                 file_path,
@@ -401,6 +468,11 @@ impl EditorCore {
             EditorCommand::QuickOpen => CommandExecutionOutcome::QuickOpen,
             EditorCommand::FindInFile => CommandExecutionOutcome::FindInFile,
             EditorCommand::FindInWorkspace => CommandExecutionOutcome::FindInWorkspace,
+            EditorCommand::Copy => CommandExecutionOutcome::Copy(self.request_copy()),
+            EditorCommand::OpenMarkdownMenu => {
+                self.request_markdown_menu();
+                CommandExecutionOutcome::OpenMarkdownMenu
+            }
         };
 
         self.events.push_back(EditorCoreEvent::ShortcutDispatched(
@@ -417,6 +489,58 @@ impl EditorCore {
         self.events.drain(..).collect()
     }
 
+    pub fn context_menu(&self) -> &EditorContextMenu {
+        &self.context_menu
+    }
+
+    pub fn open_context_menu(&mut self) -> OpenEditorContextMenuOutcome {
+        let Some(buffer) = self.active_buffer.as_ref() else {
+            self.close_context_menu();
+            return OpenEditorContextMenuOutcome::NoBuffer;
+        };
+        let file_path = buffer.file_path.clone();
+        self.context_menu = EditorContextMenu {
+            is_open: true,
+            target_file_path: Some(file_path.clone()),
+        };
+        self.events
+            .push_back(EditorCoreEvent::ContextMenuOpened(ContextMenuOpenedEvent {
+                file_path: file_path.clone(),
+            }));
+        OpenEditorContextMenuOutcome::Opened { file_path }
+    }
+
+    pub fn execute_context_menu_item(
+        &mut self,
+        item: EditorContextMenuItem,
+    ) -> ExecuteEditorContextMenuOutcome {
+        if !self.context_menu.is_open {
+            return ExecuteEditorContextMenuOutcome::ContextMenuClosed;
+        }
+        let Some(file_path) = self.context_menu.target_file_path.clone() else {
+            self.close_context_menu();
+            return ExecuteEditorContextMenuOutcome::ContextMenuClosed;
+        };
+
+        let outcome = match item {
+            EditorContextMenuItem::Save => {
+                CommandExecutionOutcome::Save(self.request_save(SaveTrigger::ContextMenu))
+            }
+            EditorContextMenuItem::Copy => CommandExecutionOutcome::Copy(self.request_copy()),
+            EditorContextMenuItem::MarkdownMenu => {
+                self.request_markdown_menu();
+                CommandExecutionOutcome::OpenMarkdownMenu
+            }
+        };
+        self.events
+            .push_back(EditorCoreEvent::ContextMenuItemExecuted(
+                ContextMenuItemExecutedEvent { file_path, item },
+            ));
+        self.close_context_menu();
+
+        ExecuteEditorContextMenuOutcome::Executed { item, outcome }
+    }
+
     fn push_buffer_edited_event(
         &mut self,
         file_path: PathBuf,
@@ -431,6 +555,33 @@ impl EditorCore {
                 cursor_char,
                 is_dirty,
             }));
+    }
+
+    fn request_copy(&mut self) -> CopyOutcome {
+        let Some(buffer) = self.active_buffer.as_ref() else {
+            return CopyOutcome::NoBuffer;
+        };
+        self.events
+            .push_back(EditorCoreEvent::CopyRequested(CopyRequestedEvent {
+                file_path: buffer.file_path.clone(),
+            }));
+        CopyOutcome::Copied
+    }
+
+    fn request_markdown_menu(&mut self) {
+        let Some(buffer) = self.active_buffer.as_ref() else {
+            return;
+        };
+        self.events
+            .push_back(EditorCoreEvent::MarkdownMenuRequested(
+                MarkdownMenuRequestedEvent {
+                    file_path: buffer.file_path.clone(),
+                },
+            ));
+    }
+
+    fn close_context_menu(&mut self) {
+        self.context_menu = EditorContextMenu::default();
     }
 }
 
@@ -821,6 +972,82 @@ mod tests {
                     is_dirty: true,
                 }),
             }
+        );
+    }
+
+    #[test]
+    fn 右クリックメニューを開いて保存メニューからsave_requestを実行できる() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "Hello");
+        core.set_cursor(5);
+        core.insert_text("!");
+
+        assert_eq!(
+            core.open_context_menu(),
+            OpenEditorContextMenuOutcome::Opened {
+                file_path: PathBuf::from("docs/readme.md"),
+            }
+        );
+        assert_eq!(
+            core.execute_context_menu_item(EditorContextMenuItem::Save),
+            ExecuteEditorContextMenuOutcome::Executed {
+                item: EditorContextMenuItem::Save,
+                outcome: CommandExecutionOutcome::Save(SaveOutcome::Requested(EditorSaveRequest {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    content: "Hello!".to_string(),
+                    revision: 1,
+                    trigger: SaveTrigger::ContextMenu,
+                })),
+            }
+        );
+        assert_eq!(core.context_menu(), &EditorContextMenu::default());
+    }
+
+    #[test]
+    fn 右クリックメニューでコピーとmarkdownメニュー要求を発火できる() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "# Hello");
+
+        assert_eq!(
+            core.open_context_menu(),
+            OpenEditorContextMenuOutcome::Opened {
+                file_path: PathBuf::from("docs/readme.md"),
+            }
+        );
+        assert_eq!(
+            core.execute_context_menu_item(EditorContextMenuItem::Copy),
+            ExecuteEditorContextMenuOutcome::Executed {
+                item: EditorContextMenuItem::Copy,
+                outcome: CommandExecutionOutcome::Copy(CopyOutcome::Copied),
+            }
+        );
+
+        assert_eq!(
+            core.open_context_menu(),
+            OpenEditorContextMenuOutcome::Opened {
+                file_path: PathBuf::from("docs/readme.md"),
+            }
+        );
+        assert_eq!(
+            core.execute_context_menu_item(EditorContextMenuItem::MarkdownMenu),
+            ExecuteEditorContextMenuOutcome::Executed {
+                item: EditorContextMenuItem::MarkdownMenu,
+                outcome: CommandExecutionOutcome::OpenMarkdownMenu,
+            }
+        );
+    }
+
+    #[test]
+    fn バッファなしまたはメニュー未オープンでは実行できない() {
+        let mut core = EditorCore::new();
+
+        assert_eq!(
+            core.open_context_menu(),
+            OpenEditorContextMenuOutcome::NoBuffer
+        );
+        assert_eq!(
+            core.execute_context_menu_item(EditorContextMenuItem::Save),
+            ExecuteEditorContextMenuOutcome::ContextMenuClosed
         );
     }
 }
