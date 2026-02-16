@@ -474,7 +474,7 @@ fn focus_matches(active_focus_id: Option<&str>, layer_focus_id: Option<&str>) ->
     matches!(
         (active_focus_id, layer_focus_id),
         (Some(active), Some(layer)) if active == layer
-    )
+    ) || matches!((active_focus_id, layer_focus_id), (None, None))
 }
 
 fn neon_night_palette() -> ColorPalette {
@@ -986,5 +986,15 @@ mod tests {
         assert!(!unfocused_style.focus_matched);
         assert_eq!(focused_style.opacity_percent, 100);
         assert_eq!(unfocused_style.opacity_percent, 50);
+    }
+
+    #[test]
+    fn focus_id未設定時は背面レイヤーを操作可能にする() {
+        let design_system = DesignSystem::neon_night_glass();
+        let manager = design_system.overlay_zindex_manager();
+        let styles = manager.resolve(&OverlayFocusState::default());
+
+        assert!(!styles[0].interactive);
+        assert!(styles[1..].iter().all(|style| style.interactive));
     }
 }
