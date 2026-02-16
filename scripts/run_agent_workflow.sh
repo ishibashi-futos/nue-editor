@@ -45,5 +45,18 @@ codex --sandbox workspace-write \
   --ask-for-approval never \
   --model $REVIEW_MODEL \
   --config model_reasoning_effort="$REVIEW_MODEL_REASONING_EFFORT" \
-  exec "$RAW_REVIEW_PROMPT\n$COMMIT_LOG" > $AGENT_LOGS 2>&1
+  exec "$RAW_REVIEW_PROMPT\n##COMMIT LOGS\n$COMMIT_LOG" > $AGENT_LOGS 2>&1
 echo "✅ reviewed."
+
+echo -n "🤖 post-review fixing ... "
+REVIEW_DOC="./review"
+POST_FIXING_PROMPT="Development Workflowに従い、次のレビュー指摘に対応してください\n## レビュー指摘事項"
+REVIEW_COMMENT=$(cat $REVIEW_DOC)
+codex --dangerously-bypass-approvals-and-sandbox \
+  --model $MODEL \
+  --config model_reasoning_effort="$MODEL_REASONING_EFFORT" \
+  exec "$POST_FIXING_PROMPT\n$REVIEW_COMMENT" > $AGENT_LOGS 2>&1
+echo "## Review comment\n$REVIEW_COMMENT"
+echo "✅ fixed."
+rm $REVIEW_DOC
+echo "✅ removed: $REVIEW_DOC"
