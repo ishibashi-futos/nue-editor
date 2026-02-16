@@ -29,7 +29,7 @@ fi
 for i in $(seq 1 5)
 do
   echo -n "🤖 $i: running task ... "
-  COMMIT_LOG=$(git log -n 5 --pretty=format:"%h %as [%s] %b%n---")
+  COMMIT_LOG=$(git log -n 10 --pretty=format:"%h %as [%s] %b%n---" | awk -v RS="---\n" -v L=5 'BEGIN{IGNORECASE=1} $0 ~ /\[(fix|feat):/ && c < L {printf "%s---\n", $0; c++}')
   RAW_AGENT_PROMPT=$(cat $PROMPT)
   codex --dangerously-bypass-approvals-and-sandbox \
     --model $MODEL \
