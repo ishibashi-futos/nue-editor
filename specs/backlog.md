@@ -21,7 +21,7 @@
 - [x] DS-5: UI オーバーレイのスタッキング規約 (`Command Hub` > `Smart Gutter` > `Decoration` > `Minimap`) を `focus_id` と連動させた z-index マネージャーで管理する。
 
 ## 3 Editor
-- [ ] ED-1: Legacy View ファイルツリーコンポーネントを実装し、ワークスペース内のファイル一覧をツリー構造でレンダリングする。
+- [x] ED-1: Legacy View ファイルツリーコンポーネントを実装し、ワークスペース内のファイル一覧をツリー構造でレンダリングする。
 - [ ] ED-2: ファイル選択時に `EditorCore` でバッファを開き、表示・編集・保存・Undo/Redo など基本操作を可能にする。
 - [ ] ED-3: ショートカット収集と `Cmd/Ctrl + S/Z/P/F/Shift+F` 等の登録機構を整備し、各ショートカットで `EditorCore` のコマンドを実行できるようにする。
 - [ ] ED-4: 右クリックメニューの基盤を作り、`Editor Core` API を呼ぶメニューアイテム (保存/コピー/Markdown メニュー) を追加できるようにする。
