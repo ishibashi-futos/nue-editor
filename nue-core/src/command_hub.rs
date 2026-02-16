@@ -49,6 +49,12 @@ pub enum PickerCancelOutcome {
     BackToListing,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PickerSelectOutcome {
+    Noop,
+    Selected { candidate_id: String },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandPaletteShortcut {
     CmdShiftP,
@@ -110,6 +116,20 @@ pub struct CommandPicker {
     visible_candidates: Vec<PickerCandidate>,
     selected_index: Option<usize>,
     confirming_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandHubSessionSnapshot {
+    pub input: String,
+    pub parsed_command: ParsedCommand,
+    pub picker: PickerSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandHubSession {
+    input: String,
+    parsed_command: ParsedCommand,
+    picker: CommandPicker,
 }
 
 pub fn parse_command(input: &str) -> ParsedCommand {
@@ -247,6 +267,50 @@ impl CommandPicker {
         PickerCancelOutcome::Closed
     }
 
+    pub fn select_next(&mut self) -> PickerSelectOutcome {
+        if self.state != PickerViewState::Listing {
+            return PickerSelectOutcome::Noop;
+        }
+        if self.visible_candidates.is_empty() {
+            return PickerSelectOutcome::Noop;
+        }
+
+        let next_index = match self.selected_index {
+            Some(current) if current + 1 < self.visible_candidates.len() => current + 1,
+            _ => 0,
+        };
+        self.selected_index = Some(next_index);
+        let candidate = &self.visible_candidates[next_index];
+
+        PickerSelectOutcome::Selected {
+            candidate_id: candidate.id.clone(),
+        }
+    }
+
+    pub fn select_previous(&mut self) -> PickerSelectOutcome {
+        if self.state != PickerViewState::Listing {
+            return PickerSelectOutcome::Noop;
+        }
+        if self.visible_candidates.is_empty() {
+            return PickerSelectOutcome::Noop;
+        }
+
+        let previous_index = match self.selected_index {
+            Some(current) if current > 0 => current - 1,
+            _ => self.visible_candidates.len() - 1,
+        };
+        self.selected_index = Some(previous_index);
+        let candidate = &self.visible_candidates[previous_index];
+
+        PickerSelectOutcome::Selected {
+            candidate_id: candidate.id.clone(),
+        }
+    }
+
+    pub fn hide(&mut self) {
+        self.close();
+    }
+
     fn close(&mut self) {
         self.state = PickerViewState::Closed;
         self.selected_index = None;
@@ -258,6 +322,64 @@ impl CommandPicker {
 impl Default for CommandPicker {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl CommandHubSession {
+    pub fn new() -> Self {
+        Self {
+            input: String::new(),
+            parsed_command: parse_command(""),
+            picker: CommandPicker::new(),
+        }
+    }
+
+    pub fn apply_input(&mut self, input: impl Into<String>, candidates: Vec<PickerCandidate>) {
+        self.input = input.into();
+        self.parsed_command = parse_command(&self.input);
+        if should_open_picker(&self.parsed_command) {
+            self.picker.open(candidates);
+        } else {
+            self.picker.hide();
+        }
+    }
+
+    pub fn snapshot(&self) -> CommandHubSessionSnapshot {
+        CommandHubSessionSnapshot {
+            input: self.input.clone(),
+            parsed_command: self.parsed_command.clone(),
+            picker: self.picker.snapshot(),
+        }
+    }
+
+    pub fn select_next_candidate(&mut self) -> PickerSelectOutcome {
+        self.picker.select_next()
+    }
+
+    pub fn select_previous_candidate(&mut self) -> PickerSelectOutcome {
+        self.picker.select_previous()
+    }
+
+    pub fn execute_selected_candidate(&mut self) -> PickerExecuteOutcome {
+        self.picker.request_execute_selected()
+    }
+
+    pub fn cancel_picker(&mut self) -> PickerCancelOutcome {
+        self.picker.cancel()
+    }
+}
+
+impl Default for CommandHubSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn should_open_picker(command: &ParsedCommand) -> bool {
+    match command.mode {
+        CommandMode::Action => command.verb == "list",
+        CommandMode::Navigation => true,
+        CommandMode::Intent => false,
     }
 }
 
@@ -438,6 +560,34 @@ mod tests {
                 target: "current".to_string(),
             },
             requires_confirmation: true,
+        }
+    }
+
+    fn workspace_candidate() -> PickerCandidate {
+        PickerCandidate {
+            id: "candidate-workspace-1".to_string(),
+            label: "Workspace: current".to_string(),
+            command: ParsedCommand {
+                mode: CommandMode::Action,
+                domain: "workspace".to_string(),
+                verb: "activate".to_string(),
+                target: "current".to_string(),
+            },
+            requires_confirmation: false,
+        }
+    }
+
+    fn navigation_candidate() -> PickerCandidate {
+        PickerCandidate {
+            id: "candidate-navigation-1".to_string(),
+            label: "specs/spec-nue.md".to_string(),
+            command: ParsedCommand {
+                mode: CommandMode::Navigation,
+                domain: "navigation".to_string(),
+                verb: "open".to_string(),
+                target: "specs/spec-nue.md".to_string(),
+            },
+            requires_confirmation: false,
         }
     }
 
@@ -647,5 +797,66 @@ mod tests {
             controller.snapshot().state,
             CommandHubVisibilityState::Hidden
         );
+    }
+
+    #[test]
+    fn sessionはaction_navigation入力を切り替えて正規化する() {
+        let mut session = CommandHubSession::new();
+
+        session.apply_input("> Workspace: List", vec![workspace_candidate()]);
+        assert_eq!(
+            session.snapshot().parsed_command,
+            ParsedCommand {
+                mode: CommandMode::Action,
+                domain: "workspace".to_string(),
+                verb: "list".to_string(),
+                target: "".to_string(),
+            }
+        );
+        assert_eq!(session.snapshot().picker.state, PickerViewState::Listing);
+
+        session.apply_input(":SPECS/Spec-Nue.md", vec![navigation_candidate()]);
+        assert_eq!(
+            session.snapshot().parsed_command,
+            ParsedCommand {
+                mode: CommandMode::Navigation,
+                domain: "navigation".to_string(),
+                verb: "open".to_string(),
+                target: "specs/spec-nue.md".to_string(),
+            }
+        );
+        assert_eq!(
+            session.snapshot().picker.selected_candidate_id,
+            Some("candidate-navigation-1".to_string())
+        );
+    }
+
+    #[test]
+    fn sessionはpickerで次候補を選択して実行する() {
+        let mut session = CommandHubSession::new();
+        let first = workspace_candidate();
+        let second = action_candidate();
+
+        session.apply_input("> Workspace: List", vec![first, second.clone()]);
+        assert_eq!(
+            session.select_next_candidate(),
+            PickerSelectOutcome::Selected {
+                candidate_id: second.id.clone(),
+            }
+        );
+
+        assert_eq!(
+            session.execute_selected_candidate(),
+            PickerExecuteOutcome::Executed(second)
+        );
+    }
+
+    #[test]
+    fn 非listのaction入力時はpickerを開かない() {
+        let mut session = CommandHubSession::new();
+
+        session.apply_input("> Terminal: Run cargo test", vec![action_candidate()]);
+
+        assert_eq!(session.snapshot().picker.state, PickerViewState::Closed);
     }
 }
