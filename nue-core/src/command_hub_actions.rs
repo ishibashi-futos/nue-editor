@@ -1,6 +1,9 @@
-use crate::command_hub::{
-    CommandHubSession, CommandMode, ParsedCommand, PickerCancelOutcome, PickerCandidate,
-    PickerExecuteOutcome,
+use crate::{
+    command_hub::{
+        CommandHubSession, CommandMode, ParsedCommand, PickerCancelOutcome, PickerCandidate,
+        PickerExecuteOutcome,
+    },
+    pane_manager::{PaneItem, PaneManager, PaneManagerError, PaneSplitDirection},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9,27 +12,11 @@ pub enum PanelTarget {
     GlobalSearch,
     Vcs,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PaneSplitDirection {
-    Left,
-    Right,
-    Up,
-    Down,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceItem {
     pub id: String,
     pub display_name: String,
     pub root_path: String,
-    pub is_active: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PaneItem {
-    pub id: String,
-    pub title: String,
     pub is_active: bool,
 }
 
@@ -126,7 +113,7 @@ pub enum CommandHubDispatchOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandHubActionModel {
     workspaces: Vec<WorkspaceItem>,
-    panes: Vec<PaneItem>,
+    pane_manager: PaneManager,
     terminals: Vec<TerminalItem>,
     selected_text: Option<String>,
     focused_panel: Option<PanelTarget>,
@@ -140,7 +127,7 @@ impl CommandHubActionModel {
     ) -> Self {
         Self {
             workspaces,
-            panes,
+            pane_manager: PaneManager::from_items(panes),
             terminals,
             selected_text: None,
             focused_panel: None,
@@ -155,8 +142,8 @@ impl CommandHubActionModel {
         &self.workspaces
     }
 
-    pub fn panes(&self) -> &[PaneItem] {
-        &self.panes
+    pub fn panes(&self) -> Vec<PaneItem> {
+        self.pane_manager.panes()
     }
 
     pub fn terminals(&self) -> &[TerminalItem] {
@@ -179,8 +166,14 @@ impl CommandHubActionModel {
             ("workspace", "remove") => {
                 workspace_candidates_for_target(command, &self.workspaces, "remove", true)
             }
-            ("pane", "list") => pane_candidates_for_target(command, &self.panes, "open"),
-            ("pane", "close") => pane_candidates_for_target(command, &self.panes, "close"),
+            ("pane", "list") => {
+                let panes = self.pane_manager.panes();
+                pane_candidates_for_target(command, &panes, "open")
+            }
+            ("pane", "close") => {
+                let panes = self.pane_manager.panes();
+                pane_candidates_for_target(command, &panes, "close")
+            }
             ("terminal", "list") => {
                 terminal_candidates_for_target(command, &self.terminals, "open", false)
             }
@@ -307,101 +300,100 @@ impl CommandHubActionModel {
                 reason: "pane split direction は left/right/up/down のいずれかです".to_string(),
             });
         };
-        let Some(active_index) = active_index(&self.panes, |pane| pane.is_active) else {
-            return CommandActionOutcome::Failed(CommandActionError::NotFound {
-                resource: "pane",
-                target: "active".to_string(),
-            });
-        };
 
-        let source_title = self.panes[active_index].title.clone();
-        let pane_id = next_sequential_id(&self.panes, "pane", |pane| pane.id.as_str());
-        for pane in &mut self.panes {
-            pane.is_active = false;
+        match self.pane_manager.split_active(direction) {
+            Ok(pane_id) => {
+                CommandActionOutcome::Executed(CommandActionEvent::PaneSplit { pane_id, direction })
+            }
+            Err(PaneManagerError::NoPanes) => {
+                CommandActionOutcome::Failed(CommandActionError::NotFound {
+                    resource: "pane",
+                    target: "active".to_string(),
+                })
+            }
+            Err(_) => CommandActionOutcome::Failed(CommandActionError::InvalidTarget {
+                reason: "pane split に失敗しました".to_string(),
+            }),
         }
-        self.panes.push(PaneItem {
-            id: pane_id.clone(),
-            title: source_title,
-            is_active: true,
-        });
-
-        CommandActionOutcome::Executed(CommandActionEvent::PaneSplit { pane_id, direction })
     }
 
     fn execute_pane_next(&mut self) -> CommandActionOutcome {
-        if self.panes.is_empty() {
-            return CommandActionOutcome::Failed(CommandActionError::NotFound {
-                resource: "pane",
-                target: "active".to_string(),
-            });
+        match self.pane_manager.activate_next() {
+            Ok(pane_id) => {
+                CommandActionOutcome::Executed(CommandActionEvent::PaneActivated { pane_id })
+            }
+            Err(PaneManagerError::NoPanes) => {
+                CommandActionOutcome::Failed(CommandActionError::NotFound {
+                    resource: "pane",
+                    target: "active".to_string(),
+                })
+            }
+            Err(_) => CommandActionOutcome::Failed(CommandActionError::InvalidTarget {
+                reason: "pane の活性化に失敗しました".to_string(),
+            }),
         }
-
-        let current = active_index(&self.panes, |pane| pane.is_active).unwrap_or(0);
-        let next = (current + 1) % self.panes.len();
-        for pane in &mut self.panes {
-            pane.is_active = false;
-        }
-        let pane_id = self.panes[next].id.clone();
-        self.panes[next].is_active = true;
-
-        CommandActionOutcome::Executed(CommandActionEvent::PaneActivated { pane_id })
     }
 
     fn execute_pane_prev(&mut self) -> CommandActionOutcome {
-        if self.panes.is_empty() {
-            return CommandActionOutcome::Failed(CommandActionError::NotFound {
-                resource: "pane",
-                target: "active".to_string(),
-            });
+        match self.pane_manager.activate_prev() {
+            Ok(pane_id) => {
+                CommandActionOutcome::Executed(CommandActionEvent::PaneActivated { pane_id })
+            }
+            Err(PaneManagerError::NoPanes) => {
+                CommandActionOutcome::Failed(CommandActionError::NotFound {
+                    resource: "pane",
+                    target: "active".to_string(),
+                })
+            }
+            Err(_) => CommandActionOutcome::Failed(CommandActionError::InvalidTarget {
+                reason: "pane の活性化に失敗しました".to_string(),
+            }),
         }
-
-        let current = active_index(&self.panes, |pane| pane.is_active).unwrap_or(0);
-        let prev = if current == 0 {
-            self.panes.len() - 1
-        } else {
-            current - 1
-        };
-        for pane in &mut self.panes {
-            pane.is_active = false;
-        }
-        let pane_id = self.panes[prev].id.clone();
-        self.panes[prev].is_active = true;
-
-        CommandActionOutcome::Executed(CommandActionEvent::PaneActivated { pane_id })
     }
 
     fn execute_pane_close(&mut self, command: &ParsedCommand) -> CommandActionOutcome {
         let target = command.target.trim();
-        let index = if target.is_empty() {
-            let Some(active) = active_index(&self.panes, |pane| pane.is_active) else {
-                return CommandActionOutcome::Failed(CommandActionError::NotFound {
-                    resource: "pane",
-                    target: "active".to_string(),
-                });
-            };
-            active
+        let pane_id = if target.is_empty() {
+            match self.pane_manager.active_pane_id() {
+                Some(id) => id.to_string(),
+                None => {
+                    return CommandActionOutcome::Failed(CommandActionError::NotFound {
+                        resource: "pane",
+                        target: "active".to_string(),
+                    });
+                }
+            }
         } else {
-            let Some(found) = pane_index_by_target(&self.panes, target) else {
-                return CommandActionOutcome::Failed(CommandActionError::NotFound {
-                    resource: "pane",
-                    target: target.to_string(),
-                });
+            let panes = self.pane_manager.panes();
+            let index = match pane_index_by_target(&panes, target) {
+                Some(index) => index,
+                None => {
+                    return CommandActionOutcome::Failed(CommandActionError::NotFound {
+                        resource: "pane",
+                        target: target.to_string(),
+                    });
+                }
             };
-            found
+            panes[index].id.clone()
         };
 
-        let removed = self.panes.remove(index);
-        if removed.is_active && !self.panes.is_empty() {
-            let replacement_index = index.min(self.panes.len() - 1);
-            for pane in &mut self.panes {
-                pane.is_active = false;
+        match self.pane_manager.close(&pane_id) {
+            Ok(()) => CommandActionOutcome::Executed(CommandActionEvent::PaneClosed { pane_id }),
+            Err(PaneManagerError::PaneNotFound(_)) => {
+                CommandActionOutcome::Failed(CommandActionError::NotFound {
+                    resource: "pane",
+                    target: pane_id,
+                })
             }
-            self.panes[replacement_index].is_active = true;
+            Err(PaneManagerError::OnlyOnePane) => {
+                CommandActionOutcome::Failed(CommandActionError::InvalidTarget {
+                    reason: "pane が1つしかないため閉じられません".to_string(),
+                })
+            }
+            Err(_) => CommandActionOutcome::Failed(CommandActionError::InvalidTarget {
+                reason: "pane の閉鎖に失敗しました".to_string(),
+            }),
         }
-
-        CommandActionOutcome::Executed(CommandActionEvent::PaneClosed {
-            pane_id: removed.id,
-        })
     }
 
     fn execute_pane_activate(&mut self, command: &ParsedCommand) -> CommandActionOutcome {
@@ -413,20 +405,28 @@ impl CommandHubActionModel {
             });
         }
 
-        let Some(index) = pane_index_by_target(&self.panes, target) else {
+        let panes = self.pane_manager.panes();
+        let Some(index) = pane_index_by_target(&panes, target) else {
             return CommandActionOutcome::Failed(CommandActionError::NotFound {
                 resource: "pane",
                 target: target.to_string(),
             });
         };
-
-        for pane in &mut self.panes {
-            pane.is_active = false;
+        let pane_id = panes[index].id.clone();
+        match self.pane_manager.activate(&pane_id) {
+            Ok(pane_id) => {
+                CommandActionOutcome::Executed(CommandActionEvent::PaneActivated { pane_id })
+            }
+            Err(PaneManagerError::PaneNotFound(_)) => {
+                CommandActionOutcome::Failed(CommandActionError::NotFound {
+                    resource: "pane",
+                    target: pane_id,
+                })
+            }
+            Err(_) => CommandActionOutcome::Failed(CommandActionError::InvalidTarget {
+                reason: "pane の活性化に失敗しました".to_string(),
+            }),
         }
-        let pane_id = self.panes[index].id.clone();
-        self.panes[index].is_active = true;
-
-        CommandActionOutcome::Executed(CommandActionEvent::PaneActivated { pane_id })
     }
 
     fn execute_panel_focus(&mut self, target: &str) -> CommandActionOutcome {
@@ -821,6 +821,7 @@ fn resolve_selected_open_target(value: &str) -> Result<SelectedOpenTarget, Strin
 mod tests {
     use super::*;
     use crate::command_hub::{CommandHubSession, PickerCandidate};
+    use crate::pane_manager::{PaneItem, PaneSplitDirection};
 
     fn action_command(domain: &str, verb: &str, target: &str) -> ParsedCommand {
         ParsedCommand {
@@ -923,7 +924,7 @@ mod tests {
         assert_eq!(
             model.execute(&action_command("pane", "next", "")),
             CommandActionOutcome::Executed(CommandActionEvent::PaneActivated {
-                pane_id: "pane-1".to_string(),
+                pane_id: "pane-2".to_string(),
             })
         );
         assert_eq!(

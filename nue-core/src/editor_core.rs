@@ -1,5 +1,5 @@
 use crate::markdown_service::{
-    MarkdownDiffObservedEvent, MarkdownFeature, MarkdownFeatureRequestedEvent,
+    MarkdownDiffObservedEvent, MarkdownFeature, MarkdownFeatureRequestedEvent, MarkdownHeading,
     MarkdownPreviewSyncedEvent, MarkdownService, MarkdownServiceEvent,
 };
 use crate::minimap_service::{
@@ -50,6 +50,7 @@ pub enum EditorCommand {
     FindInWorkspace,
     Copy,
     OpenMarkdownMenu,
+    OpenMarkdownPreview,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +136,7 @@ pub enum CommandExecutionOutcome {
     FindInWorkspace,
     Copy(CopyOutcome),
     OpenMarkdownMenu,
+    OpenMarkdownPreview,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,6 +159,7 @@ pub enum EditorContextMenuItem {
     Save,
     Copy,
     MarkdownMenu,
+    MarkdownPreview,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -284,6 +287,11 @@ pub struct MarkdownMenuRequestedEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkdownPreviewRequestedEvent {
+    pub file_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedEvent {
     pub file_path: PathBuf,
     pub revision: u64,
@@ -302,6 +310,7 @@ pub enum EditorCoreEvent {
     ContextMenuItemExecuted(ContextMenuItemExecutedEvent),
     CopyRequested(CopyRequestedEvent),
     MarkdownMenuRequested(MarkdownMenuRequestedEvent),
+    MarkdownPreviewRequested(MarkdownPreviewRequestedEvent),
     MarkdownFeatureRequested(MarkdownFeatureRequestedEvent),
     MarkdownDiffObserved(MarkdownDiffObservedEvent),
     MarkdownPreviewSynced(MarkdownPreviewSyncedEvent),
@@ -583,6 +592,10 @@ impl EditorCore {
                 self.request_markdown_menu();
                 CommandExecutionOutcome::OpenMarkdownMenu
             }
+            EditorCommand::OpenMarkdownPreview => {
+                self.request_markdown_preview();
+                CommandExecutionOutcome::OpenMarkdownPreview
+            }
         };
 
         self.events.push_back(EditorCoreEvent::ShortcutDispatched(
@@ -616,6 +629,21 @@ impl EditorCore {
 
         self.push_markdown_service_event(event);
         ExecuteMarkdownFeatureOutcome::Executed { feature }
+    }
+
+    pub fn sync_with_markdown_preview(&mut self, line: usize) -> CursorMoveOutcome {
+        if self.active_buffer.is_none() {
+            return CursorMoveOutcome::NoBuffer;
+        }
+        let char_index = {
+            let buffer = self.active_buffer.as_ref().unwrap();
+            line_to_char_index(buffer.content.as_str(), line)
+        };
+        self.set_cursor(char_index)
+    }
+
+    pub fn jump_to_markdown_heading(&mut self, heading: &MarkdownHeading) -> CursorMoveOutcome {
+        self.sync_with_markdown_preview(heading.line)
     }
 
     pub fn minimap_snapshot(&self) -> Option<MinimapSnapshot> {
@@ -789,6 +817,10 @@ impl EditorCore {
                 self.request_markdown_menu();
                 CommandExecutionOutcome::OpenMarkdownMenu
             }
+            EditorContextMenuItem::MarkdownPreview => {
+                self.request_markdown_preview();
+                CommandExecutionOutcome::OpenMarkdownPreview
+            }
         };
         self.events
             .push_back(EditorCoreEvent::ContextMenuItemExecuted(
@@ -907,6 +939,18 @@ impl EditorCore {
             ));
     }
 
+    fn request_markdown_preview(&mut self) {
+        let Some(buffer) = self.active_buffer.as_ref() else {
+            return;
+        };
+        self.events
+            .push_back(EditorCoreEvent::MarkdownPreviewRequested(
+                MarkdownPreviewRequestedEvent {
+                    file_path: buffer.file_path.clone(),
+                },
+            ));
+    }
+
     fn close_context_menu(&mut self) {
         self.context_menu = EditorContextMenu::default();
     }
@@ -983,6 +1027,26 @@ fn char_to_byte_index(content: &str, char_index: usize) -> usize {
         .nth(char_index)
         .map(|(byte_index, _)| byte_index)
         .unwrap_or(content.len())
+}
+
+fn line_to_char_index(content: &str, line: usize) -> usize {
+    if line == 0 {
+        return 0;
+    }
+    let mut char_index = 0;
+    let mut current_line = 0;
+
+    for ch in content.chars() {
+        char_index += 1;
+        if ch == '\n' {
+            current_line += 1;
+            if current_line == line {
+                return char_index;
+            }
+        }
+    }
+
+    char_index
 }
 
 fn default_shortcut_bindings() -> Vec<(KeyChord, EditorCommand)> {
@@ -1365,6 +1429,42 @@ mod tests {
     }
 
     #[test]
+    fn 右クリックメニューからmarkdown_preview要求を送れる() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "# Hello");
+        core.drain_events();
+
+        assert_eq!(
+            core.open_context_menu(),
+            OpenEditorContextMenuOutcome::Opened {
+                file_path: PathBuf::from("docs/readme.md"),
+            }
+        );
+        core.drain_events();
+
+        assert_eq!(
+            core.execute_context_menu_item(EditorContextMenuItem::MarkdownPreview),
+            ExecuteEditorContextMenuOutcome::Executed {
+                item: EditorContextMenuItem::MarkdownPreview,
+                outcome: CommandExecutionOutcome::OpenMarkdownPreview,
+            }
+        );
+
+        assert_eq!(
+            core.drain_events(),
+            vec![
+                EditorCoreEvent::MarkdownPreviewRequested(MarkdownPreviewRequestedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                }),
+                EditorCoreEvent::ContextMenuItemExecuted(ContextMenuItemExecutedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    item: EditorContextMenuItem::MarkdownPreview,
+                }),
+            ]
+        );
+    }
+
+    #[test]
     fn バッファなしまたはメニュー未オープンでは実行できない() {
         let mut core = EditorCore::new();
 
@@ -1442,6 +1542,36 @@ mod tests {
     }
 
     #[test]
+    fn markdown_preview同期でカーソルが指定行へ移動する() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "line1\nline2\nline3");
+        core.drain_events();
+
+        assert_eq!(
+            core.sync_with_markdown_preview(2),
+            CursorMoveOutcome::Moved { cursor_char: 12 }
+        );
+    }
+
+    #[test]
+    fn markdown_headingクリックで対象行へジャンプできる() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "first\n## heading\ncontent");
+        core.drain_events();
+
+        let heading = MarkdownHeading {
+            line: 1,
+            level: 2,
+            title: "heading".to_string(),
+        };
+
+        assert_eq!(
+            core.jump_to_markdown_heading(&heading),
+            CursorMoveOutcome::Moved { cursor_char: 6 }
+        );
+    }
+
+    #[test]
     fn markdown編集で差分検知とプレビュー同期イベントを発火する() {
         let mut core = EditorCore::new();
         core.open_file("docs/readme.md", "# Heading\n- item");
@@ -1476,6 +1606,18 @@ mod tests {
                     file_path: PathBuf::from("docs/readme.md"),
                     revision: 1,
                     heading_count: 2,
+                    headings: vec![
+                        MarkdownHeading {
+                            line: 0,
+                            level: 1,
+                            title: "Heading".to_string(),
+                        },
+                        MarkdownHeading {
+                            line: 2,
+                            level: 2,
+                            title: "Section".to_string(),
+                        },
+                    ],
                 }),
             ]
         );

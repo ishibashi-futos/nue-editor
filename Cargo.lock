@@ -3262,7 +3262,10 @@ dependencies = [
  "nue-config",
  "nue-mcp",
  "nue-semantic",
+ "regex",
  "ropey",
+ "tempfile",
+ "walkdir",
 ]
 
 [[package]]

@@ -11,6 +11,13 @@ pub enum MarkdownFeature {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkdownHeading {
+    pub line: usize,
+    pub level: u8,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkdownFeatureRequestedEvent {
     pub file_path: PathBuf,
     pub feature: MarkdownFeature,
@@ -28,6 +35,7 @@ pub struct MarkdownPreviewSyncedEvent {
     pub file_path: PathBuf,
     pub revision: u64,
     pub heading_count: usize,
+    pub headings: Vec<MarkdownHeading>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +82,8 @@ impl MarkdownService {
         }
 
         let changed_line_count = count_changed_lines(previous_content, current_content);
-        let heading_count = count_markdown_headings(current_content);
+        let headings = collect_markdown_headings(current_content);
+        let heading_count = headings.len();
 
         vec![
             MarkdownServiceEvent::DiffObserved(MarkdownDiffObservedEvent {
@@ -86,8 +95,13 @@ impl MarkdownService {
                 file_path: file_path.to_path_buf(),
                 revision,
                 heading_count,
+                headings,
             }),
         ]
+    }
+
+    pub fn collect_headings(content: &str) -> Vec<MarkdownHeading> {
+        collect_markdown_headings(content)
     }
 }
 
@@ -115,11 +129,11 @@ fn count_changed_lines(previous_content: &str, current_content: &str) -> usize {
     changed_line_count
 }
 
-fn count_markdown_headings(content: &str) -> usize {
-    let mut heading_count = 0;
+fn collect_markdown_headings(content: &str) -> Vec<MarkdownHeading> {
+    let mut headings = Vec::new();
     let mut in_fenced_code_block = false;
 
-    for line in content.lines() {
+    for (line_index, line) in content.lines().enumerate() {
         let trimmed = line.trim_start();
         if trimmed.starts_with("```") {
             in_fenced_code_block = !in_fenced_code_block;
@@ -128,12 +142,20 @@ fn count_markdown_headings(content: &str) -> usize {
         if in_fenced_code_block {
             continue;
         }
-        if trimmed.starts_with('#') {
-            heading_count += 1;
+        let level = trimmed.chars().take_while(|c| *c == '#').count();
+        if level == 0 {
+            continue;
         }
+        let title = trimmed[level..].trim_start().to_string();
+        let heading = MarkdownHeading {
+            line: line_index,
+            level: level.min(u8::MAX as usize) as u8,
+            title,
+        };
+        headings.push(heading);
     }
 
-    heading_count
+    headings
 }
 
 #[cfg(test)]
@@ -183,6 +205,18 @@ mod tests {
                     file_path: PathBuf::from("docs/readme.md"),
                     revision: 3,
                     heading_count: 2,
+                    headings: vec![
+                        MarkdownHeading {
+                            line: 0,
+                            level: 1,
+                            title: "Title".to_string(),
+                        },
+                        MarkdownHeading {
+                            line: 2,
+                            level: 2,
+                            title: "Section".to_string(),
+                        },
+                    ],
                 }),
             ]
         );
@@ -221,7 +255,47 @@ mod tests {
                 file_path: PathBuf::from("docs/readme.md"),
                 revision: 2,
                 heading_count: 2,
+                headings: vec![
+                    MarkdownHeading {
+                        line: 0,
+                        level: 1,
+                        title: "Title".to_string(),
+                    },
+                    MarkdownHeading {
+                        line: 4,
+                        level: 2,
+                        title: "Section".to_string(),
+                    },
+                ],
             })
+        );
+    }
+
+    #[test]
+    fn collect_headingsは行番号とレベルとタイトルを返す() {
+        let content = "# Title\n\n## Section\nここには`# not heading`があります\n```python\n# code block\n```\n### Sub";
+
+        let headings = MarkdownService::collect_headings(content);
+
+        assert_eq!(
+            headings,
+            vec![
+                MarkdownHeading {
+                    line: 0,
+                    level: 1,
+                    title: "Title".to_string(),
+                },
+                MarkdownHeading {
+                    line: 2,
+                    level: 2,
+                    title: "Section".to_string(),
+                },
+                MarkdownHeading {
+                    line: 7,
+                    level: 3,
+                    title: "Sub".to_string(),
+                },
+            ]
         );
     }
 }
