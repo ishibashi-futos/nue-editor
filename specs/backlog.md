@@ -14,7 +14,7 @@
 - [ ] WS-3: `WorkspaceRail` で Busy/Waiting/Error/Idle ステータスを色+アニメーションで表現し、基盤サーバ状態と連携してライブ更新できるようにする。
 
 ## 2 Design System
-- [ ] DS-1: Neon-Night-Glass カラーパレットと `FontContext` (JetBrainsMono の Regular/Bold/Italic 埋め込み) を `nue-ui` で登録する。
+- [x] DS-1: Neon-Night-Glass カラーパレットと `FontContext` (JetBrainsMono の Regular/Bold/Italic 埋め込み) を `nue-ui` で登録する。
 - [ ] DS-2: Glass 質感（Backdrop Blur / Fine Grain / Specular Edge）の共通スタイルを `Command Hub` や主要パネルのコンポーネントに適用し、再利用可能な CSS/StyleObject を用意する。
 - [ ] DS-3: Agent Status（Busy/Waiting/Error/Idle）のカラーとアニメーション規約 (遷移タイミング・Glow) を定義し、`Command Hub`/`Structure Path`/`Workspace Rail` などで参照するスタイル定義を整備する。
 - [ ] DS-4: 未承認/承認済み差分用の Solar Flare / Electric Lime / Cloud White を `SmartGutter`/Approval UI/Gutter のスタイルにマッピングする。

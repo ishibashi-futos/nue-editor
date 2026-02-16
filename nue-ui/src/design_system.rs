@@ -1,6 +1,14 @@
 pub const FONT_KEY_TEXT: &str = "nue-font::text";
 pub const FONT_KEY_EMPHASIS: &str = "nue-font::emphasis";
 pub const FONT_KEY_META: &str = "nue-font::meta";
+pub const FONT_LICENSE_SIL_OFL_1_1: &str = "SIL Open Font License 1.1";
+
+const FONT_FILE_REGULAR: &str = "JetBrainsMono-Regular.ttf";
+const FONT_FILE_BOLD: &str = "JetBrainsMono-Bold.ttf";
+const FONT_FILE_ITALIC: &str = "JetBrainsMono-Italic.ttf";
+const FONT_BYTES_REGULAR: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf");
+const FONT_BYTES_BOLD: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf");
+const FONT_BYTES_ITALIC: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Italic.ttf");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentStatus {
@@ -69,13 +77,17 @@ const COLOR_CYBER_MAGENTA: NamedColor = NamedColor {
     name: "Cyber Magenta",
     hex: "#FF006E",
 };
+const COLOR_ETHER_PURPLE: NamedColor = NamedColor {
+    name: "Ether Purple",
+    hex: "#BF5AF2",
+};
 const COLOR_CLOUD_WHITE: NamedColor = NamedColor {
     name: "Cloud White",
-    hex: "#E6ECFF",
+    hex: "#F8F9FA",
 };
 const COLOR_DUSTY_GREY: NamedColor = NamedColor {
     name: "Dusty Grey",
-    hex: "#97A0B3",
+    hex: "#949DB1",
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +100,7 @@ pub struct ColorPalette {
     pub electric_lime: NamedColor,
     pub solar_flare: NamedColor,
     pub cyber_magenta: NamedColor,
+    pub ether_purple: NamedColor,
     pub cloud_white: NamedColor,
     pub dusty_grey: NamedColor,
 }
@@ -135,12 +148,33 @@ pub struct FontDefinition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FontContext {
     bindings: Vec<FontDefinition>,
+    bundled_fonts: Vec<BundledFont>,
     fallback_fonts: Vec<&'static str>,
 }
 
 impl FontContext {
+    pub fn from_bundled_fonts(
+        bundled_fonts: Vec<BundledFont>,
+        fallback_fonts: Vec<&'static str>,
+    ) -> Self {
+        let bindings = bundled_fonts
+            .iter()
+            .map(BundledFont::to_definition)
+            .collect();
+
+        Self {
+            bindings,
+            bundled_fonts,
+            fallback_fonts,
+        }
+    }
+
     pub fn bindings(&self) -> &[FontDefinition] {
         &self.bindings
+    }
+
+    pub fn bundled_fonts(&self) -> &[BundledFont] {
+        &self.bundled_fonts
     }
 
     pub fn fallback_fonts(&self) -> &[&'static str] {
@@ -158,6 +192,26 @@ pub struct AnimationConvention {
     pub waiting: AnimationSpec,
     pub error: AnimationSpec,
     pub idle: AnimationSpec,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BundledFont {
+    pub key: &'static str,
+    pub font_name: &'static str,
+    pub style: FontStyle,
+    pub file_name: &'static str,
+    pub license: &'static str,
+    pub bytes: &'static [u8],
+}
+
+impl BundledFont {
+    fn to_definition(&self) -> FontDefinition {
+        FontDefinition {
+            key: self.key,
+            font_name: self.font_name,
+            style: self.style,
+        }
+    }
 }
 
 impl AnimationConvention {
@@ -218,6 +272,7 @@ fn neon_night_palette() -> ColorPalette {
         electric_lime: COLOR_ELECTRIC_LIME,
         solar_flare: COLOR_SOLAR_FLARE,
         cyber_magenta: COLOR_CYBER_MAGENTA,
+        ether_purple: COLOR_ETHER_PURPLE,
         cloud_white: COLOR_CLOUD_WHITE,
         dusty_grey: COLOR_DUSTY_GREY,
     }
@@ -237,26 +292,35 @@ fn neon_night_glass_material(palette: ColorPalette) -> GlassMaterial {
 }
 
 fn neon_night_font_context() -> FontContext {
-    FontContext {
-        bindings: vec![
-            FontDefinition {
+    FontContext::from_bundled_fonts(
+        vec![
+            BundledFont {
                 key: FONT_KEY_TEXT,
                 font_name: "JetBrainsMono-Regular",
                 style: FontStyle::Regular,
+                file_name: FONT_FILE_REGULAR,
+                license: FONT_LICENSE_SIL_OFL_1_1,
+                bytes: FONT_BYTES_REGULAR,
             },
-            FontDefinition {
+            BundledFont {
                 key: FONT_KEY_EMPHASIS,
                 font_name: "JetBrainsMono-Bold",
                 style: FontStyle::Bold,
+                file_name: FONT_FILE_BOLD,
+                license: FONT_LICENSE_SIL_OFL_1_1,
+                bytes: FONT_BYTES_BOLD,
             },
-            FontDefinition {
+            BundledFont {
                 key: FONT_KEY_META,
                 font_name: "JetBrainsMono-Italic",
                 style: FontStyle::Italic,
+                file_name: FONT_FILE_ITALIC,
+                license: FONT_LICENSE_SIL_OFL_1_1,
+                bytes: FONT_BYTES_ITALIC,
             },
         ],
-        fallback_fonts: vec!["Menlo", "Monaco", "Courier New"],
-    }
+        vec!["Menlo", "Monaco", "Courier New"],
+    )
 }
 
 fn neon_night_animation_convention() -> AnimationConvention {
@@ -310,6 +374,9 @@ mod tests {
         assert_eq!(palette.atmosphere.hex, "#1A1D23");
         assert_eq!(palette.neon_cyan.hex, "#00F5FF");
         assert_eq!(palette.solar_flare.hex, "#FFF200");
+        assert_eq!(palette.ether_purple.hex, "#BF5AF2");
+        assert_eq!(palette.cloud_white.hex, "#F8F9FA");
+        assert_eq!(palette.dusty_grey.hex, "#949DB1");
         assert_eq!(glass.background, palette.atmosphere);
         assert_eq!(glass.background_alpha_percent, 70);
         assert_eq!(glass.backdrop_blur_px, 20);
@@ -351,6 +418,24 @@ mod tests {
             font_context.fallback_fonts(),
             &["Menlo", "Monaco", "Courier New"]
         );
+    }
+
+    #[test]
+    fn fontcontextはjetbrainsmono埋め込みカタログを持つ() {
+        let design_system = DesignSystem::neon_night_glass();
+        let font_context = design_system.font_context();
+        let catalog = font_context.bundled_fonts();
+
+        assert_eq!(catalog.len(), 3);
+        assert_eq!(catalog[0].file_name, "JetBrainsMono-Regular.ttf");
+        assert_eq!(catalog[1].file_name, "JetBrainsMono-Bold.ttf");
+        assert_eq!(catalog[2].file_name, "JetBrainsMono-Italic.ttf");
+        assert!(
+            catalog
+                .iter()
+                .all(|font| font.license == "SIL Open Font License 1.1")
+        );
+        assert!(catalog.iter().all(|font| !font.bytes.is_empty()));
     }
 
     #[test]
