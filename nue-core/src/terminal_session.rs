@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 pub type TerminalCommandId = u64;
+pub const DEFAULT_QUEUE_MAX_PENDING: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalCommandState {
@@ -62,7 +63,15 @@ pub struct TerminalSession {
 }
 
 impl TerminalSession {
-    pub fn new(workspace_session_id: impl Into<String>, queue_max_pending: usize) -> Self {
+    pub fn new(workspace_session_id: impl Into<String>) -> Self {
+        Self::new_with_queue_max_pending(workspace_session_id, DEFAULT_QUEUE_MAX_PENDING)
+    }
+
+    pub fn new_with_queue_max_pending(
+        workspace_session_id: impl Into<String>,
+        queue_max_pending: usize,
+    ) -> Self {
+        let queue_max_pending = queue_max_pending.max(1);
         Self {
             workspace_session_id: workspace_session_id.into(),
             queue_max_pending,
@@ -194,7 +203,7 @@ mod tests {
     use super::*;
 
     fn test_session() -> TerminalSession {
-        TerminalSession::new("workspace-session-1", 2)
+        TerminalSession::new_with_queue_max_pending("workspace-session-1", 2)
     }
 
     #[test]
@@ -318,6 +327,48 @@ mod tests {
                     message: "run_command キューが上限に達したため要求を拒否しました".to_string(),
                 }
             )]
+        );
+    }
+
+    #[test]
+    fn queue_max_pending未設定時は既定値4を使う() {
+        let mut session = TerminalSession::new("workspace-session-1");
+
+        assert_eq!(
+            session.enqueue_run_command("agent-a", "cmd-1"),
+            QueueCommandOutcome::Started { command_id: 1 }
+        );
+        assert_eq!(
+            session.enqueue_run_command("agent-b", "cmd-2"),
+            QueueCommandOutcome::Queued {
+                command_id: 2,
+                position: 1
+            }
+        );
+        assert_eq!(
+            session.enqueue_run_command("agent-c", "cmd-3"),
+            QueueCommandOutcome::Queued {
+                command_id: 3,
+                position: 2
+            }
+        );
+        assert_eq!(
+            session.enqueue_run_command("agent-d", "cmd-4"),
+            QueueCommandOutcome::Queued {
+                command_id: 4,
+                position: 3
+            }
+        );
+        assert_eq!(
+            session.enqueue_run_command("agent-e", "cmd-5"),
+            QueueCommandOutcome::Queued {
+                command_id: 5,
+                position: 4
+            }
+        );
+        assert_eq!(
+            session.enqueue_run_command("agent-f", "cmd-6"),
+            QueueCommandOutcome::RejectedQueueFull
         );
     }
 }

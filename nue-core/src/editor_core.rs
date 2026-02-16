@@ -593,6 +593,41 @@ mod tests {
     }
 
     #[test]
+    fn バッファ未オープン時の保存要求はnobufferを返す() {
+        let mut core = EditorCore::new();
+        assert_eq!(
+            core.request_save(SaveTrigger::Manual),
+            SaveOutcome::NoBuffer
+        );
+    }
+
+    #[test]
+    fn 未編集バッファの保存要求はnotdirtyを返す() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "Hello");
+
+        assert_eq!(
+            core.request_save(SaveTrigger::Manual),
+            SaveOutcome::NotDirty
+        );
+    }
+
+    #[test]
+    fn mark_savedは古いrevisionならstaleを返す() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "Hello");
+        core.set_cursor(5);
+        core.insert_text("!");
+
+        assert_eq!(
+            core.mark_saved(0),
+            MarkSavedOutcome::StaleRevision {
+                current_revision: 1
+            }
+        );
+    }
+
+    #[test]
     fn ショートカット登録とcmd_ctrl_s実行で保存を発火できる() {
         let mut core = EditorCore::new();
         core.open_file("docs/readme.md", "Hello");

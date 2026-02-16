@@ -6,36 +6,6 @@ pub enum WorkspaceRailState {
     Idle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UiWorkspaceRailState {
-    Busy,
-    Waiting,
-    Error,
-    Idle,
-}
-
-impl From<WorkspaceRailState> for UiWorkspaceRailState {
-    fn from(value: WorkspaceRailState) -> Self {
-        match value {
-            WorkspaceRailState::Busy => Self::Busy,
-            WorkspaceRailState::Waiting => Self::Waiting,
-            WorkspaceRailState::Error => Self::Error,
-            WorkspaceRailState::Idle => Self::Idle,
-        }
-    }
-}
-
-impl From<UiWorkspaceRailState> for WorkspaceRailState {
-    fn from(value: UiWorkspaceRailState) -> Self {
-        match value {
-            UiWorkspaceRailState::Busy => Self::Busy,
-            UiWorkspaceRailState::Waiting => Self::Waiting,
-            UiWorkspaceRailState::Error => Self::Error,
-            UiWorkspaceRailState::Idle => Self::Idle,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceMetadata {
     pub workspace_id: String,
@@ -129,8 +99,8 @@ impl WorkspaceRailModel {
         self.apply_transition(next, TransitionSource::Core, SyncDirection::CoreToUi)
     }
 
-    pub fn apply_ui_state(&mut self, next: UiWorkspaceRailState) -> TransitionOutcome {
-        self.apply_transition(next.into(), TransitionSource::Ui, SyncDirection::UiToCore)
+    pub fn apply_ui_state(&mut self, next: WorkspaceRailState) -> TransitionOutcome {
+        self.apply_transition(next, TransitionSource::Ui, SyncDirection::UiToCore)
     }
 
     fn apply_transition(
@@ -209,7 +179,7 @@ mod tests {
     fn ui更新時は状態遷移とcore向け同期イベントを生成する() {
         let mut model = test_model();
 
-        let result = model.apply_ui_state(UiWorkspaceRailState::Error);
+        let result = model.apply_ui_state(WorkspaceRailState::Error);
 
         assert_eq!(
             result,
@@ -248,7 +218,7 @@ mod tests {
         let mut model = test_model();
 
         model.apply_core_state(WorkspaceRailState::Busy);
-        model.apply_ui_state(UiWorkspaceRailState::Waiting);
+        model.apply_ui_state(WorkspaceRailState::Waiting);
 
         assert_eq!(model.snapshot().state, WorkspaceRailState::Waiting);
         assert_eq!(model.snapshot().revision, 2);
