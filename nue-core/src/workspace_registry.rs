@@ -35,10 +35,30 @@ pub enum AddWorkspaceOutcome {
     ValidationFailed { reason: WorkspacePathValidation },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WorkspaceContextMenu {
+    pub is_open: bool,
+    pub target_workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenWorkspaceContextMenuOutcome {
+    Opened { workspace_id: String },
+    WorkspaceNotFound,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExcludeWorkspaceOutcome {
+    Excluded { workspace_id: String },
+    ContextMenuClosed,
+    WorkspaceNotFound,
+}
+
 #[derive(Debug, Default)]
 pub struct WorkspaceRegistry {
     workspaces: Vec<WorkspaceRailModel>,
     dialog: WorkspaceRegistrationDialog,
+    context_menu: WorkspaceContextMenu,
 }
 
 impl WorkspaceRegistry {
@@ -54,10 +74,59 @@ impl WorkspaceRegistry {
         &self.workspaces
     }
 
+    pub fn context_menu(&self) -> &WorkspaceContextMenu {
+        &self.context_menu
+    }
+
     pub fn open_add_dialog(&mut self) {
         self.dialog.is_open = true;
         self.dialog.input_path.clear();
         self.dialog.validation = WorkspacePathValidation::Empty;
+    }
+
+    pub fn open_exclude_context_menu(
+        &mut self,
+        workspace_id: &str,
+    ) -> OpenWorkspaceContextMenuOutcome {
+        if self.workspace_index_by_id(workspace_id).is_none() {
+            self.close_context_menu();
+            return OpenWorkspaceContextMenuOutcome::WorkspaceNotFound;
+        }
+
+        self.context_menu = WorkspaceContextMenu {
+            is_open: true,
+            target_workspace_id: Some(workspace_id.to_string()),
+        };
+        OpenWorkspaceContextMenuOutcome::Opened {
+            workspace_id: workspace_id.to_string(),
+        }
+    }
+
+    pub fn exclude_context_menu_target(&mut self) -> ExcludeWorkspaceOutcome {
+        if !self.context_menu.is_open {
+            return ExcludeWorkspaceOutcome::ContextMenuClosed;
+        }
+
+        let Some(target_workspace_id) = self.context_menu.target_workspace_id.as_deref() else {
+            self.close_context_menu();
+            return ExcludeWorkspaceOutcome::WorkspaceNotFound;
+        };
+
+        let Some(index) = self.workspace_index_by_id(target_workspace_id) else {
+            self.close_context_menu();
+            return ExcludeWorkspaceOutcome::WorkspaceNotFound;
+        };
+        let removed_workspace_id = self
+            .workspaces
+            .remove(index)
+            .metadata()
+            .workspace_id
+            .clone();
+        self.close_context_menu();
+
+        ExcludeWorkspaceOutcome::Excluded {
+            workspace_id: removed_workspace_id,
+        }
     }
 
     pub fn update_dialog_path(&mut self, path: impl Into<String>) -> WorkspacePathValidation {
@@ -75,7 +144,7 @@ impl WorkspaceRegistry {
 
         let canonical_path = canonicalize_path(self.dialog.input_path.as_str())
             .expect("validate_pathで有効なパスのみ到達する");
-        let workspace_id = format!("workspace-{}", self.workspaces.len() + 1);
+        let workspace_id = self.next_workspace_id();
         let display_name = workspace_display_name(canonical_path.as_str());
         let metadata = WorkspaceMetadata::new(
             workspace_id.clone(),
@@ -105,6 +174,32 @@ impl WorkspaceRegistry {
         }
 
         WorkspacePathValidation::Valid
+    }
+
+    fn next_workspace_id(&self) -> String {
+        let max_sequence = self
+            .workspaces
+            .iter()
+            .filter_map(|workspace| {
+                workspace
+                    .metadata()
+                    .workspace_id
+                    .strip_prefix("workspace-")
+                    .and_then(|suffix| suffix.parse::<usize>().ok())
+            })
+            .max()
+            .unwrap_or(0);
+        format!("workspace-{}", max_sequence + 1)
+    }
+
+    fn workspace_index_by_id(&self, workspace_id: &str) -> Option<usize> {
+        self.workspaces
+            .iter()
+            .position(|workspace| workspace.metadata().workspace_id == workspace_id)
+    }
+
+    fn close_context_menu(&mut self) {
+        self.context_menu = WorkspaceContextMenu::default();
     }
 }
 
@@ -333,5 +428,133 @@ mod tests {
 
         assert_eq!(validation, WorkspacePathValidation::Duplicate);
         assert_eq!(registry.workspaces().len(), 1);
+    }
+
+    #[test]
+    fn 既存workspaceを右クリックすると除外メニューが開く() {
+        let first = TestDir::new("workspace-first");
+        let second = TestDir::new("workspace-second");
+        let mut registry = WorkspaceRegistry::new();
+        registry.open_add_dialog();
+        registry.update_dialog_path(first.path_str());
+        assert!(matches!(
+            registry.submit_add(),
+            AddWorkspaceOutcome::Added { .. }
+        ));
+        registry.open_add_dialog();
+        registry.update_dialog_path(second.path_str());
+        assert!(matches!(
+            registry.submit_add(),
+            AddWorkspaceOutcome::Added { .. }
+        ));
+
+        let opened = registry.open_exclude_context_menu("workspace-2");
+
+        assert_eq!(
+            opened,
+            OpenWorkspaceContextMenuOutcome::Opened {
+                workspace_id: "workspace-2".to_string(),
+            }
+        );
+        assert_eq!(
+            registry.context_menu(),
+            &WorkspaceContextMenu {
+                is_open: true,
+                target_workspace_id: Some("workspace-2".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn 右クリック対象が存在しない場合は除外メニューを開けない() {
+        let mut registry = WorkspaceRegistry::new();
+
+        let opened = registry.open_exclude_context_menu("workspace-99");
+
+        assert_eq!(opened, OpenWorkspaceContextMenuOutcome::WorkspaceNotFound);
+        assert_eq!(registry.context_menu(), &WorkspaceContextMenu::default());
+    }
+
+    #[test]
+    fn 除外メニューからworkspaceを除外すると一覧が更新される() {
+        let first = TestDir::new("workspace-first");
+        let second = TestDir::new("workspace-second");
+        let mut registry = WorkspaceRegistry::new();
+        registry.open_add_dialog();
+        registry.update_dialog_path(first.path_str());
+        assert!(matches!(
+            registry.submit_add(),
+            AddWorkspaceOutcome::Added { .. }
+        ));
+        registry.open_add_dialog();
+        registry.update_dialog_path(second.path_str());
+        assert!(matches!(
+            registry.submit_add(),
+            AddWorkspaceOutcome::Added { .. }
+        ));
+        assert!(matches!(
+            registry.open_exclude_context_menu("workspace-1"),
+            OpenWorkspaceContextMenuOutcome::Opened { .. }
+        ));
+
+        let removed = registry.exclude_context_menu_target();
+
+        assert_eq!(
+            removed,
+            ExcludeWorkspaceOutcome::Excluded {
+                workspace_id: "workspace-1".to_string(),
+            }
+        );
+        assert_eq!(registry.workspaces().len(), 1);
+        assert_eq!(
+            registry.workspaces()[0].metadata().workspace_id,
+            "workspace-2".to_string()
+        );
+        assert_eq!(registry.context_menu(), &WorkspaceContextMenu::default());
+    }
+
+    #[test]
+    fn 除外メニューが閉じている時は除外操作できない() {
+        let mut registry = WorkspaceRegistry::new();
+
+        let removed = registry.exclude_context_menu_target();
+
+        assert_eq!(removed, ExcludeWorkspaceOutcome::ContextMenuClosed);
+    }
+
+    #[test]
+    fn 除外後に再追加してもworkspace_idは重複しない() {
+        let first = TestDir::new("workspace-first");
+        let second = TestDir::new("workspace-second");
+        let third = TestDir::new("workspace-third");
+        let mut registry = WorkspaceRegistry::new();
+        registry.open_add_dialog();
+        registry.update_dialog_path(first.path_str());
+        assert!(matches!(
+            registry.submit_add(),
+            AddWorkspaceOutcome::Added { workspace_id } if workspace_id == "workspace-1"
+        ));
+        registry.open_add_dialog();
+        registry.update_dialog_path(second.path_str());
+        assert!(matches!(
+            registry.submit_add(),
+            AddWorkspaceOutcome::Added { workspace_id } if workspace_id == "workspace-2"
+        ));
+        assert!(matches!(
+            registry.open_exclude_context_menu("workspace-1"),
+            OpenWorkspaceContextMenuOutcome::Opened { .. }
+        ));
+        assert!(matches!(
+            registry.exclude_context_menu_target(),
+            ExcludeWorkspaceOutcome::Excluded { .. }
+        ));
+
+        registry.open_add_dialog();
+        registry.update_dialog_path(third.path_str());
+
+        assert!(matches!(
+            registry.submit_add(),
+            AddWorkspaceOutcome::Added { workspace_id } if workspace_id == "workspace-3"
+        ));
     }
 }
