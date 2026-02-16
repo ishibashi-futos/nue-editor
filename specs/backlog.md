@@ -18,7 +18,7 @@
 - [x] DS-2: Glass 質感（Backdrop Blur / Fine Grain / Specular Edge）の共通スタイルを `Command Hub` や主要パネルのコンポーネントに適用し、再利用可能な CSS/StyleObject を用意する。
 - [x] DS-3: Agent Status（Busy/Waiting/Error/Idle）のカラーとアニメーション規約 (遷移タイミング・Glow) を定義し、`Command Hub`/`Structure Path`/`Workspace Rail` などで参照するスタイル定義を整備する。
 - [x] DS-4: 未承認/承認済み差分用の Solar Flare / Electric Lime / Cloud White を `SmartGutter`/Approval UI/Gutter のスタイルにマッピングする。
-- [ ] DS-5: UI オーバーレイのスタッキング規約 (`Command Hub` > `Smart Gutter` > `Decoration` > `Minimap`) を `focus_id` と連動させた z-index マネージャーで管理する。
+- [x] DS-5: UI オーバーレイのスタッキング規約 (`Command Hub` > `Smart Gutter` > `Decoration` > `Minimap`) を `focus_id` と連動させた z-index マネージャーで管理する。
 
 ## 3 Editor
 - [ ] ED-1: Legacy View ファイルツリーコンポーネントを実装し、ワークスペース内のファイル一覧をツリー構造でレンダリングする。

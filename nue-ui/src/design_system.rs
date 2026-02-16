@@ -159,6 +159,92 @@ pub enum DiffState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayLayer {
+    CommandHub,
+    SmartGutter,
+    Decoration,
+    Minimap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OverlayFocusState {
+    pub active_focus_id: Option<String>,
+    pub command_hub_active: bool,
+    pub smart_gutter_focus_id: Option<String>,
+    pub decoration_focus_id: Option<String>,
+    pub minimap_focus_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OverlayLayerStyle {
+    pub layer: OverlayLayer,
+    pub z_index: u16,
+    pub opacity_percent: u8,
+    pub interactive: bool,
+    pub focus_matched: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct OverlayZIndexManager;
+
+impl OverlayZIndexManager {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn resolve(&self, focus_state: &OverlayFocusState) -> Vec<OverlayLayerStyle> {
+        let command_hub_focus_matched = focus_state.command_hub_active;
+        let smart_gutter_focus_matched = focus_matches(
+            focus_state.active_focus_id.as_deref(),
+            focus_state.smart_gutter_focus_id.as_deref(),
+        );
+        let decoration_focus_matched = focus_matches(
+            focus_state.active_focus_id.as_deref(),
+            focus_state.decoration_focus_id.as_deref(),
+        );
+        let minimap_focus_matched = focus_matches(
+            focus_state.active_focus_id.as_deref(),
+            focus_state.minimap_focus_id.as_deref(),
+        );
+
+        vec![
+            OverlayLayerStyle {
+                layer: OverlayLayer::CommandHub,
+                z_index: 400,
+                opacity_percent: if focus_state.command_hub_active {
+                    100
+                } else {
+                    0
+                },
+                interactive: focus_state.command_hub_active,
+                focus_matched: command_hub_focus_matched,
+            },
+            OverlayLayerStyle {
+                layer: OverlayLayer::SmartGutter,
+                z_index: 300,
+                opacity_percent: if smart_gutter_focus_matched { 100 } else { 50 },
+                interactive: !focus_state.command_hub_active && smart_gutter_focus_matched,
+                focus_matched: smart_gutter_focus_matched,
+            },
+            OverlayLayerStyle {
+                layer: OverlayLayer::Decoration,
+                z_index: 200,
+                opacity_percent: if decoration_focus_matched { 88 } else { 64 },
+                interactive: !focus_state.command_hub_active && decoration_focus_matched,
+                focus_matched: decoration_focus_matched,
+            },
+            OverlayLayerStyle {
+                layer: OverlayLayer::Minimap,
+                z_index: 100,
+                opacity_percent: if minimap_focus_matched { 80 } else { 60 },
+                interactive: !focus_state.command_hub_active && minimap_focus_matched,
+                focus_matched: minimap_focus_matched,
+            },
+        ]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DiffStyle {
     pub surface: DiffSurface,
     pub state: DiffState,
@@ -378,6 +464,17 @@ impl DesignSystem {
             emphasis_percent,
         }
     }
+
+    pub fn overlay_zindex_manager(&self) -> OverlayZIndexManager {
+        OverlayZIndexManager::new()
+    }
+}
+
+fn focus_matches(active_focus_id: Option<&str>, layer_focus_id: Option<&str>) -> bool {
+    matches!(
+        (active_focus_id, layer_focus_id),
+        (Some(active), Some(layer)) if active == layer
+    )
 }
 
 fn neon_night_palette() -> ColorPalette {
@@ -831,5 +928,63 @@ mod tests {
         assert_eq!(style.state, DiffState::Neutral);
         assert_eq!(style.color.hex, "#F8F9FA");
         assert_eq!(style.emphasis_percent, 58);
+    }
+
+    #[test]
+    fn overlay_zindex_managerは仕様順のレイヤー優先度を返す() {
+        let design_system = DesignSystem::neon_night_glass();
+        let manager = design_system.overlay_zindex_manager();
+        let styles = manager.resolve(&OverlayFocusState::default());
+
+        assert_eq!(styles[0].layer, OverlayLayer::CommandHub);
+        assert_eq!(styles[1].layer, OverlayLayer::SmartGutter);
+        assert_eq!(styles[2].layer, OverlayLayer::Decoration);
+        assert_eq!(styles[3].layer, OverlayLayer::Minimap);
+        assert!(styles[0].z_index > styles[1].z_index);
+        assert!(styles[1].z_index > styles[2].z_index);
+        assert!(styles[2].z_index > styles[3].z_index);
+    }
+
+    #[test]
+    fn command_hub操作中は背後レイヤーを非インタラクティブにする() {
+        let design_system = DesignSystem::neon_night_glass();
+        let manager = design_system.overlay_zindex_manager();
+        let styles = manager.resolve(&OverlayFocusState {
+            command_hub_active: true,
+            ..OverlayFocusState::default()
+        });
+
+        assert!(styles[0].interactive);
+        assert!(styles[1..].iter().all(|style| !style.interactive));
+        assert_eq!(styles[0].opacity_percent, 100);
+    }
+
+    #[test]
+    fn focus_id一致時はsmart_gutterを強調し一致しない場合は半透明にする() {
+        let design_system = DesignSystem::neon_night_glass();
+        let manager = design_system.overlay_zindex_manager();
+        let focused = manager.resolve(&OverlayFocusState {
+            active_focus_id: Some("focus-1".to_string()),
+            smart_gutter_focus_id: Some("focus-1".to_string()),
+            ..OverlayFocusState::default()
+        });
+        let unfocused = manager.resolve(&OverlayFocusState {
+            active_focus_id: Some("focus-2".to_string()),
+            smart_gutter_focus_id: Some("focus-1".to_string()),
+            ..OverlayFocusState::default()
+        });
+
+        let focused_style = focused
+            .iter()
+            .find(|style| style.layer == OverlayLayer::SmartGutter)
+            .expect("Smart Gutterのスタイルが必要");
+        let unfocused_style = unfocused
+            .iter()
+            .find(|style| style.layer == OverlayLayer::SmartGutter)
+            .expect("Smart Gutterのスタイルが必要");
+        assert!(focused_style.focus_matched);
+        assert!(!unfocused_style.focus_matched);
+        assert_eq!(focused_style.opacity_percent, 100);
+        assert_eq!(unfocused_style.opacity_percent, 50);
     }
 }
