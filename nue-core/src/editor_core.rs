@@ -1,5 +1,9 @@
+use crate::markdown_service::{
+    MarkdownDiffObservedEvent, MarkdownFeature, MarkdownFeatureRequestedEvent,
+    MarkdownPreviewSyncedEvent, MarkdownService, MarkdownServiceEvent,
+};
 use std::collections::{HashMap, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum KeyModifier {
@@ -167,6 +171,13 @@ pub enum ExecuteEditorContextMenuOutcome {
     ContextMenuClosed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecuteMarkdownFeatureOutcome {
+    NoBuffer,
+    NotMarkdownFile,
+    Executed { feature: MarkdownFeature },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BufferOpenedEvent {
     pub file_path: PathBuf,
@@ -238,6 +249,9 @@ pub enum EditorCoreEvent {
     ContextMenuItemExecuted(ContextMenuItemExecutedEvent),
     CopyRequested(CopyRequestedEvent),
     MarkdownMenuRequested(MarkdownMenuRequestedEvent),
+    MarkdownFeatureRequested(MarkdownFeatureRequestedEvent),
+    MarkdownDiffObserved(MarkdownDiffObservedEvent),
+    MarkdownPreviewSynced(MarkdownPreviewSyncedEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -245,6 +259,7 @@ pub struct EditorCore {
     active_buffer: Option<EditorBuffer>,
     shortcuts: HashMap<KeyChord, EditorCommand>,
     context_menu: EditorContextMenu,
+    markdown_service: MarkdownService,
     events: VecDeque<EditorCoreEvent>,
 }
 
@@ -254,6 +269,7 @@ impl EditorCore {
             active_buffer: None,
             shortcuts: HashMap::new(),
             context_menu: EditorContextMenu::default(),
+            markdown_service: MarkdownService::new(),
             events: VecDeque::new(),
         }
     }
@@ -317,6 +333,7 @@ impl EditorCore {
             };
         }
 
+        let previous_content = buffer.content.clone();
         buffer.undo_stack.push(buffer.current_history_state());
         buffer.redo_stack.clear();
 
@@ -329,7 +346,14 @@ impl EditorCore {
         let revision = buffer.revision;
         let cursor_char = buffer.cursor_char;
         let file_path = buffer.file_path.clone();
-        self.push_buffer_edited_event(file_path, revision, cursor_char, is_dirty);
+        let current_content = buffer.content.clone();
+        self.push_buffer_edited_event(file_path.clone(), revision, cursor_char, is_dirty);
+        self.push_markdown_observation_events(
+            &file_path,
+            revision,
+            previous_content.as_str(),
+            current_content.as_str(),
+        );
 
         EditOutcome::Edited {
             revision,
@@ -346,6 +370,7 @@ impl EditorCore {
             return HistoryOutcome::NoHistory;
         };
 
+        let previous_content = buffer.content.clone();
         buffer.redo_stack.push(buffer.current_history_state());
         buffer.apply_history_state(previous_state);
         buffer.revision += 1;
@@ -354,7 +379,14 @@ impl EditorCore {
         let revision = buffer.revision;
         let cursor_char = buffer.cursor_char;
         let file_path = buffer.file_path.clone();
-        self.push_buffer_edited_event(file_path, revision, cursor_char, is_dirty);
+        let current_content = buffer.content.clone();
+        self.push_buffer_edited_event(file_path.clone(), revision, cursor_char, is_dirty);
+        self.push_markdown_observation_events(
+            &file_path,
+            revision,
+            previous_content.as_str(),
+            current_content.as_str(),
+        );
 
         HistoryOutcome::Applied {
             revision,
@@ -371,6 +403,7 @@ impl EditorCore {
             return HistoryOutcome::NoHistory;
         };
 
+        let previous_content = buffer.content.clone();
         buffer.undo_stack.push(buffer.current_history_state());
         buffer.apply_history_state(next_state);
         buffer.revision += 1;
@@ -379,7 +412,14 @@ impl EditorCore {
         let revision = buffer.revision;
         let cursor_char = buffer.cursor_char;
         let file_path = buffer.file_path.clone();
-        self.push_buffer_edited_event(file_path, revision, cursor_char, is_dirty);
+        let current_content = buffer.content.clone();
+        self.push_buffer_edited_event(file_path.clone(), revision, cursor_char, is_dirty);
+        self.push_markdown_observation_events(
+            &file_path,
+            revision,
+            previous_content.as_str(),
+            current_content.as_str(),
+        );
 
         HistoryOutcome::Applied {
             revision,
@@ -489,6 +529,25 @@ impl EditorCore {
         self.events.drain(..).collect()
     }
 
+    pub fn execute_markdown_feature(
+        &mut self,
+        feature: MarkdownFeature,
+    ) -> ExecuteMarkdownFeatureOutcome {
+        let Some(buffer) = self.active_buffer.as_ref() else {
+            return ExecuteMarkdownFeatureOutcome::NoBuffer;
+        };
+
+        let Some(event) = self
+            .markdown_service
+            .request_feature(buffer.file_path.as_path(), feature)
+        else {
+            return ExecuteMarkdownFeatureOutcome::NotMarkdownFile;
+        };
+
+        self.push_markdown_service_event(event);
+        ExecuteMarkdownFeatureOutcome::Executed { feature }
+    }
+
     pub fn context_menu(&self) -> &EditorContextMenu {
         &self.context_menu
     }
@@ -555,6 +614,38 @@ impl EditorCore {
                 cursor_char,
                 is_dirty,
             }));
+    }
+
+    fn push_markdown_observation_events(
+        &mut self,
+        file_path: &Path,
+        revision: u64,
+        previous_content: &str,
+        current_content: &str,
+    ) {
+        let events = self.markdown_service.observe_change(
+            file_path,
+            revision,
+            previous_content,
+            current_content,
+        );
+        for event in events {
+            self.push_markdown_service_event(event);
+        }
+    }
+
+    fn push_markdown_service_event(&mut self, event: MarkdownServiceEvent) {
+        match event {
+            MarkdownServiceEvent::FeatureRequested(event) => self
+                .events
+                .push_back(EditorCoreEvent::MarkdownFeatureRequested(event)),
+            MarkdownServiceEvent::DiffObserved(event) => self
+                .events
+                .push_back(EditorCoreEvent::MarkdownDiffObserved(event)),
+            MarkdownServiceEvent::PreviewSynced(event) => self
+                .events
+                .push_back(EditorCoreEvent::MarkdownPreviewSynced(event)),
+        }
     }
 
     fn request_copy(&mut self) -> CopyOutcome {
@@ -1049,5 +1140,121 @@ mod tests {
             core.execute_context_menu_item(EditorContextMenuItem::Save),
             ExecuteEditorContextMenuOutcome::ContextMenuClosed
         );
+    }
+
+    #[test]
+    fn markdownサブ機能をサービス経由で要求できる() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "# Heading");
+        core.drain_events();
+
+        assert_eq!(
+            core.execute_markdown_feature(MarkdownFeature::SyntaxHighlight),
+            ExecuteMarkdownFeatureOutcome::Executed {
+                feature: MarkdownFeature::SyntaxHighlight,
+            }
+        );
+        assert_eq!(
+            core.execute_markdown_feature(MarkdownFeature::ListContinuation),
+            ExecuteMarkdownFeatureOutcome::Executed {
+                feature: MarkdownFeature::ListContinuation,
+            }
+        );
+        assert_eq!(
+            core.execute_markdown_feature(MarkdownFeature::PairCompletion),
+            ExecuteMarkdownFeatureOutcome::Executed {
+                feature: MarkdownFeature::PairCompletion,
+            }
+        );
+        assert_eq!(
+            core.execute_markdown_feature(MarkdownFeature::OpenLink),
+            ExecuteMarkdownFeatureOutcome::Executed {
+                feature: MarkdownFeature::OpenLink,
+            }
+        );
+        assert_eq!(
+            core.execute_markdown_feature(MarkdownFeature::PreviewSync),
+            ExecuteMarkdownFeatureOutcome::Executed {
+                feature: MarkdownFeature::PreviewSync,
+            }
+        );
+        assert_eq!(
+            core.drain_events(),
+            vec![
+                EditorCoreEvent::MarkdownFeatureRequested(MarkdownFeatureRequestedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    feature: MarkdownFeature::SyntaxHighlight,
+                }),
+                EditorCoreEvent::MarkdownFeatureRequested(MarkdownFeatureRequestedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    feature: MarkdownFeature::ListContinuation,
+                }),
+                EditorCoreEvent::MarkdownFeatureRequested(MarkdownFeatureRequestedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    feature: MarkdownFeature::PairCompletion,
+                }),
+                EditorCoreEvent::MarkdownFeatureRequested(MarkdownFeatureRequestedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    feature: MarkdownFeature::OpenLink,
+                }),
+                EditorCoreEvent::MarkdownFeatureRequested(MarkdownFeatureRequestedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    feature: MarkdownFeature::PreviewSync,
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn markdown編集で差分検知とプレビュー同期イベントを発火する() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "# Heading\n- item");
+        core.drain_events();
+        core.set_cursor(16);
+        core.drain_events();
+
+        assert_eq!(
+            core.insert_text("\n## Section"),
+            EditOutcome::Edited {
+                revision: 1,
+                cursor_char: 27,
+                is_dirty: true,
+            }
+        );
+
+        assert_eq!(
+            core.drain_events(),
+            vec![
+                EditorCoreEvent::BufferEdited(BufferEditedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    revision: 1,
+                    cursor_char: 27,
+                    is_dirty: true,
+                }),
+                EditorCoreEvent::MarkdownDiffObserved(MarkdownDiffObservedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    revision: 1,
+                    changed_line_count: 1,
+                }),
+                EditorCoreEvent::MarkdownPreviewSynced(MarkdownPreviewSyncedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    revision: 1,
+                    heading_count: 2,
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn markdown以外のファイルでmarkdown機能要求は実行されない() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/note.txt", "plain");
+        core.drain_events();
+
+        assert_eq!(
+            core.execute_markdown_feature(MarkdownFeature::SyntaxHighlight),
+            ExecuteMarkdownFeatureOutcome::NotMarkdownFile
+        );
+        assert!(core.drain_events().is_empty());
     }
 }

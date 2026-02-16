@@ -25,7 +25,7 @@
 - [x] ED-2: ファイル選択時に `EditorCore` でバッファを開き、表示・編集・保存・Undo/Redo など基本操作を可能にする。
 - [x] ED-3: ショートカット収集と `Cmd/Ctrl + S/Z/P/F/Shift+F` 等の登録機構を整備し、各ショートカットで `EditorCore` のコマンドを実行できるようにする。
 - [x] ED-4: 右クリックメニューの基盤を作り、`Editor Core` API を呼ぶメニューアイテム (保存/コピー/Markdown メニュー) を追加できるようにする。
-- [ ] ED-5: Markdown リッチ機能（構文強調・リスト補完・ペア補完・リンク開く・プレビュー同期など）の各サブ機能を `MarkdownService` に分割し、差分検知/同期を観測するイベントを追加する。
+- [x] ED-5: Markdown リッチ機能（構文強調・リスト補完・ペア補完・リンク開く・プレビュー同期など）の各サブ機能を `MarkdownService` に分割し、差分検知/同期を観測するイベントを追加する。
 - [ ] ED-6: `Minimap` コンポーネントと `Shadow Buffer` オーバーレイの基礎を作成し、検索結果や AI/Git 差分をライン/色で描画できるようにする。`focus_id` 更新で `Command Hub`/`Structure Path` に同期するイベントを出す。
 - [ ] ED-7: `Smart Gutter` の差分タイプ判別 (git/AI)・色アニメーション・クリックジャンプ・Approval Request 連携を分解し、`Structure Path`/`Command Hub` の状態と連動するイベントを定義する。
 - [ ] ED-8: ビュー側で Markdown Preview を右クリックメニューに統合し、プレビューとのスクロール同期や見出しクリックで本文にジャンプする機能を追加する。
