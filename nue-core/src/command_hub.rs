@@ -78,13 +78,14 @@ fn parse_action_mode(input: &str) -> ParsedCommand {
     let (domain_raw, body_raw) = input.split_once(':').unwrap_or(("action", input));
 
     let body = body_raw.trim();
-    let mut segments = body.split_whitespace();
-    let verb = segments
-        .next()
-        .map(normalize_keyword)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "run".to_string());
-    let target = normalize_target(&segments.collect::<Vec<&str>>().join(" "));
+    let (verb_raw, target_raw) = split_head_token(body);
+    let verb = normalize_keyword(verb_raw);
+    let verb = if verb.is_empty() {
+        "run".to_string()
+    } else {
+        verb
+    };
+    let target = parse_action_target(target_raw);
 
     let domain = normalize_keyword(domain_raw);
     let domain = if domain.is_empty() {
@@ -234,6 +235,53 @@ fn normalize_target(value: &str) -> String {
         .join(" ")
 }
 
+fn parse_action_target(value: &str) -> String {
+    let target = value.trim();
+    if target.is_empty() {
+        return String::new();
+    }
+
+    if let Some(literal) = parse_literal_flag_target(target) {
+        return literal;
+    }
+    if let Some(literal) = parse_double_quoted_target(target) {
+        return literal;
+    }
+
+    normalize_target(target)
+}
+
+fn parse_literal_flag_target(value: &str) -> Option<String> {
+    let (flag, literal_body) = split_head_token(value);
+    if flag.eq_ignore_ascii_case("--literal") {
+        return Some(literal_body.to_string());
+    }
+    None
+}
+
+fn parse_double_quoted_target(value: &str) -> Option<String> {
+    if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
+        return Some(value[1..value.len() - 1].to_string());
+    }
+    None
+}
+
+fn split_head_token(value: &str) -> (&str, &str) {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return ("", "");
+    }
+
+    if let Some((index, character)) = trimmed.char_indices().find(|(_, ch)| ch.is_whitespace()) {
+        let next_index = index + character.len_utf8();
+        let head = &trimmed[..index];
+        let tail = trimmed[next_index..].trim_start();
+        return (head, tail);
+    }
+
+    (trimmed, "")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,6 +340,36 @@ mod tests {
                 domain: "navigation".to_string(),
                 verb: "open".to_string(),
                 target: "src/lib.rs".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn action_modeはダブルクオートtargetをliteralとして保持する() {
+        let parsed = parse_command("> Workspace: Add \"~/Work/My Project\"");
+
+        assert_eq!(
+            parsed,
+            ParsedCommand {
+                mode: CommandMode::Action,
+                domain: "workspace".to_string(),
+                verb: "add".to_string(),
+                target: "~/Work/My Project".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn action_modeはliteralフラグ指定時にtargetの大文字小文字を保持する() {
+        let parsed = parse_command("> Terminal: Run --LiTeRaL Cargo Test -- --nocapture");
+
+        assert_eq!(
+            parsed,
+            ParsedCommand {
+                mode: CommandMode::Action,
+                domain: "terminal".to_string(),
+                verb: "run".to_string(),
+                target: "Cargo Test -- --nocapture".to_string(),
             }
         );
     }
