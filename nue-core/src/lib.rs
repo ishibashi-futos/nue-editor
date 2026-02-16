@@ -6,6 +6,7 @@ pub mod legacy_file_tree;
 pub mod legacy_workspace_editor;
 pub mod markdown_service;
 pub mod minimap_service;
+pub mod smart_gutter_service;
 pub mod terminal_session;
 pub mod workspace_rail;
 pub mod workspace_registry;

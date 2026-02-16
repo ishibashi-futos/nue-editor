@@ -6,6 +6,11 @@ use crate::minimap_service::{
     MinimapFocusIdSyncedEvent, MinimapOverlay, MinimapOverlaysUpdatedEvent, MinimapService,
     MinimapServiceEvent, MinimapSnapshot,
 };
+use crate::smart_gutter_service::{
+    OpenApprovalRequestError, SmartGutterApprovalRequestOpenedEvent, SmartGutterFocusIdSyncedEvent,
+    SmartGutterIndicator, SmartGutterIndicatorsUpdatedEvent, SmartGutterJumpRequestedEvent,
+    SmartGutterService, SmartGutterServiceEvent, SmartGutterSnapshot,
+};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
@@ -196,6 +201,37 @@ pub enum SyncMinimapFocusOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateSmartGutterIndicatorsOutcome {
+    NoBuffer,
+    Updated { indicator_count: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncSmartGutterFocusOutcome {
+    NoBuffer,
+    FocusNotFound,
+    Synced { focus_id: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JumpToSmartGutterDiffOutcome {
+    NoBuffer,
+    FocusNotFound,
+    Jumped { focus_id: String, line: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenSmartGutterApprovalRequestOutcome {
+    NoBuffer,
+    FocusNotFound,
+    MissingApprovalRequest,
+    Opened {
+        focus_id: String,
+        approval_request_id: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BufferOpenedEvent {
     pub file_path: PathBuf,
 }
@@ -271,6 +307,10 @@ pub enum EditorCoreEvent {
     MarkdownPreviewSynced(MarkdownPreviewSyncedEvent),
     MinimapOverlaysUpdated(MinimapOverlaysUpdatedEvent),
     MinimapFocusIdSynced(MinimapFocusIdSyncedEvent),
+    SmartGutterIndicatorsUpdated(SmartGutterIndicatorsUpdatedEvent),
+    SmartGutterFocusIdSynced(SmartGutterFocusIdSyncedEvent),
+    SmartGutterJumpRequested(SmartGutterJumpRequestedEvent),
+    SmartGutterApprovalRequestOpened(SmartGutterApprovalRequestOpenedEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -280,6 +320,7 @@ pub struct EditorCore {
     context_menu: EditorContextMenu,
     markdown_service: MarkdownService,
     minimap_service: MinimapService,
+    smart_gutter_service: SmartGutterService,
     events: VecDeque<EditorCoreEvent>,
 }
 
@@ -291,6 +332,7 @@ impl EditorCore {
             context_menu: EditorContextMenu::default(),
             markdown_service: MarkdownService::new(),
             minimap_service: MinimapService::new(),
+            smart_gutter_service: SmartGutterService::new(),
             events: VecDeque::new(),
         }
     }
@@ -307,6 +349,8 @@ impl EditorCore {
 
         self.active_buffer = Some(buffer);
         self.minimap_service
+            .on_buffer_opened(file_path.as_path(), snapshot.content.as_str());
+        self.smart_gutter_service
             .on_buffer_opened(file_path.as_path(), snapshot.content.as_str());
         self.close_context_menu();
         self.events
@@ -372,6 +416,8 @@ impl EditorCore {
         let current_content = buffer.content.clone();
         self.minimap_service
             .on_buffer_updated(current_content.as_str());
+        self.smart_gutter_service
+            .on_buffer_updated(current_content.as_str());
         self.push_buffer_edited_event(file_path.clone(), revision, cursor_char, is_dirty);
         self.push_markdown_observation_events(
             &file_path,
@@ -407,6 +453,8 @@ impl EditorCore {
         let current_content = buffer.content.clone();
         self.minimap_service
             .on_buffer_updated(current_content.as_str());
+        self.smart_gutter_service
+            .on_buffer_updated(current_content.as_str());
         self.push_buffer_edited_event(file_path.clone(), revision, cursor_char, is_dirty);
         self.push_markdown_observation_events(
             &file_path,
@@ -441,6 +489,8 @@ impl EditorCore {
         let file_path = buffer.file_path.clone();
         let current_content = buffer.content.clone();
         self.minimap_service
+            .on_buffer_updated(current_content.as_str());
+        self.smart_gutter_service
             .on_buffer_updated(current_content.as_str());
         self.push_buffer_edited_event(file_path.clone(), revision, cursor_char, is_dirty);
         self.push_markdown_observation_events(
@@ -615,6 +665,95 @@ impl EditorCore {
         }
     }
 
+    pub fn smart_gutter_snapshot(&self) -> Option<SmartGutterSnapshot> {
+        self.smart_gutter_service.snapshot()
+    }
+
+    pub fn update_smart_gutter_indicators(
+        &mut self,
+        indicators: Vec<SmartGutterIndicator>,
+    ) -> UpdateSmartGutterIndicatorsOutcome {
+        if self.active_buffer.is_none() {
+            return UpdateSmartGutterIndicatorsOutcome::NoBuffer;
+        }
+        let Some(event) = self.smart_gutter_service.replace_indicators(indicators) else {
+            return UpdateSmartGutterIndicatorsOutcome::NoBuffer;
+        };
+        let indicator_count = self
+            .smart_gutter_service
+            .snapshot()
+            .map(|snapshot| snapshot.indicators.len())
+            .unwrap_or(0);
+        self.push_smart_gutter_service_event(event);
+
+        UpdateSmartGutterIndicatorsOutcome::Updated { indicator_count }
+    }
+
+    pub fn sync_smart_gutter_focus_id(&mut self, focus_id: &str) -> SyncSmartGutterFocusOutcome {
+        if self.active_buffer.is_none() {
+            return SyncSmartGutterFocusOutcome::NoBuffer;
+        }
+        if !self.smart_gutter_service.has_focus(focus_id) {
+            return SyncSmartGutterFocusOutcome::FocusNotFound;
+        }
+        if let Some(event) = self.smart_gutter_service.sync_focus_id(focus_id) {
+            self.push_smart_gutter_service_event(event);
+        }
+
+        SyncSmartGutterFocusOutcome::Synced {
+            focus_id: focus_id.to_string(),
+        }
+    }
+
+    pub fn jump_to_smart_gutter_focus(&mut self, focus_id: &str) -> JumpToSmartGutterDiffOutcome {
+        if self.active_buffer.is_none() {
+            return JumpToSmartGutterDiffOutcome::NoBuffer;
+        }
+        let Some(event) = self.smart_gutter_service.request_jump(focus_id) else {
+            return JumpToSmartGutterDiffOutcome::FocusNotFound;
+        };
+        let line = match &event {
+            SmartGutterServiceEvent::JumpRequested(event) => event.line,
+            _ => return JumpToSmartGutterDiffOutcome::FocusNotFound,
+        };
+        self.push_smart_gutter_service_event(event);
+
+        JumpToSmartGutterDiffOutcome::Jumped {
+            focus_id: focus_id.to_string(),
+            line,
+        }
+    }
+
+    pub fn open_smart_gutter_approval_request(
+        &mut self,
+        focus_id: &str,
+    ) -> OpenSmartGutterApprovalRequestOutcome {
+        if self.active_buffer.is_none() {
+            return OpenSmartGutterApprovalRequestOutcome::NoBuffer;
+        }
+        let event = match self.smart_gutter_service.open_approval_request(focus_id) {
+            Ok(event) => event,
+            Err(OpenApprovalRequestError::FocusNotFound) => {
+                return OpenSmartGutterApprovalRequestOutcome::FocusNotFound;
+            }
+            Err(OpenApprovalRequestError::MissingApprovalRequest) => {
+                return OpenSmartGutterApprovalRequestOutcome::MissingApprovalRequest;
+            }
+        };
+        let approval_request_id = match &event {
+            SmartGutterServiceEvent::ApprovalRequestOpened(event) => {
+                event.approval_request_id.clone()
+            }
+            _ => return OpenSmartGutterApprovalRequestOutcome::FocusNotFound,
+        };
+        self.push_smart_gutter_service_event(event);
+
+        OpenSmartGutterApprovalRequestOutcome::Opened {
+            focus_id: focus_id.to_string(),
+            approval_request_id,
+        }
+    }
+
     pub fn context_menu(&self) -> &EditorContextMenu {
         &self.context_menu
     }
@@ -723,6 +862,23 @@ impl EditorCore {
             MinimapServiceEvent::FocusIdSynced(event) => self
                 .events
                 .push_back(EditorCoreEvent::MinimapFocusIdSynced(event)),
+        }
+    }
+
+    fn push_smart_gutter_service_event(&mut self, event: SmartGutterServiceEvent) {
+        match event {
+            SmartGutterServiceEvent::IndicatorsUpdated(event) => self
+                .events
+                .push_back(EditorCoreEvent::SmartGutterIndicatorsUpdated(event)),
+            SmartGutterServiceEvent::FocusIdSynced(event) => self
+                .events
+                .push_back(EditorCoreEvent::SmartGutterFocusIdSynced(event)),
+            SmartGutterServiceEvent::JumpRequested(event) => self
+                .events
+                .push_back(EditorCoreEvent::SmartGutterJumpRequested(event)),
+            SmartGutterServiceEvent::ApprovalRequestOpened(event) => self
+                .events
+                .push_back(EditorCoreEvent::SmartGutterApprovalRequestOpened(event)),
         }
     }
 
@@ -1397,6 +1553,105 @@ mod tests {
                     ],
                 }
             )]
+        );
+    }
+
+    #[test]
+    fn smart_gutterにai_git差分を登録してfocus同期できる() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "one\ntwo\nthree\nfour");
+        core.drain_events();
+
+        assert_eq!(
+            core.update_smart_gutter_indicators(vec![
+                crate::smart_gutter_service::SmartGutterIndicator::ai_diff(
+                    2,
+                    "focus-ai-1",
+                    "approval-1",
+                ),
+                crate::smart_gutter_service::SmartGutterIndicator::git_diff(4, "focus-git-1"),
+            ]),
+            UpdateSmartGutterIndicatorsOutcome::Updated { indicator_count: 2 }
+        );
+        assert_eq!(
+            core.sync_smart_gutter_focus_id("focus-ai-1"),
+            SyncSmartGutterFocusOutcome::Synced {
+                focus_id: "focus-ai-1".to_string(),
+            }
+        );
+        assert_eq!(
+            core.drain_events(),
+            vec![
+                EditorCoreEvent::SmartGutterIndicatorsUpdated(
+                    crate::smart_gutter_service::SmartGutterIndicatorsUpdatedEvent {
+                        file_path: PathBuf::from("docs/readme.md"),
+                        indicator_count: 2,
+                    },
+                ),
+                EditorCoreEvent::SmartGutterFocusIdSynced(
+                    crate::smart_gutter_service::SmartGutterFocusIdSyncedEvent {
+                        file_path: PathBuf::from("docs/readme.md"),
+                        focus_id: "focus-ai-1".to_string(),
+                        targets: vec![
+                            crate::smart_gutter_service::SmartGutterSyncTarget::CommandHub,
+                            crate::smart_gutter_service::SmartGutterSyncTarget::StructurePath,
+                        ],
+                    },
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn smart_gutterのクリックジャンプとapproval_request連携イベントを発火できる() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "one\ntwo\nthree\nfour");
+        core.update_smart_gutter_indicators(vec![
+            crate::smart_gutter_service::SmartGutterIndicator::ai_diff(
+                2,
+                "focus-ai-1",
+                "approval-1",
+            ),
+            crate::smart_gutter_service::SmartGutterIndicator::git_diff(4, "focus-git-1"),
+        ]);
+        core.drain_events();
+
+        assert_eq!(
+            core.jump_to_smart_gutter_focus("focus-git-1"),
+            JumpToSmartGutterDiffOutcome::Jumped {
+                focus_id: "focus-git-1".to_string(),
+                line: 4,
+            }
+        );
+        assert_eq!(
+            core.open_smart_gutter_approval_request("focus-ai-1"),
+            OpenSmartGutterApprovalRequestOutcome::Opened {
+                focus_id: "focus-ai-1".to_string(),
+                approval_request_id: "approval-1".to_string(),
+            }
+        );
+        assert_eq!(
+            core.drain_events(),
+            vec![
+                EditorCoreEvent::SmartGutterJumpRequested(
+                    crate::smart_gutter_service::SmartGutterJumpRequestedEvent {
+                        file_path: PathBuf::from("docs/readme.md"),
+                        focus_id: "focus-git-1".to_string(),
+                        line: 4,
+                    },
+                ),
+                EditorCoreEvent::SmartGutterApprovalRequestOpened(
+                    crate::smart_gutter_service::SmartGutterApprovalRequestOpenedEvent {
+                        file_path: PathBuf::from("docs/readme.md"),
+                        focus_id: "focus-ai-1".to_string(),
+                        approval_request_id: "approval-1".to_string(),
+                        targets: vec![
+                            crate::smart_gutter_service::SmartGutterSyncTarget::CommandHub,
+                            crate::smart_gutter_service::SmartGutterSyncTarget::StructurePath,
+                        ],
+                    },
+                ),
+            ]
         );
     }
 
