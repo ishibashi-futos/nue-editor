@@ -132,6 +132,22 @@ pub struct GlassMaterial {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlassSurface {
+    CommandHub,
+    PrimaryPanel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GlassStyleObject {
+    pub surface: GlassSurface,
+    pub background: NamedColor,
+    pub background_alpha_percent: u8,
+    pub backdrop_blur_px: u8,
+    pub fine_grain_opacity_percent: u8,
+    pub specular_edge: SpecularEdge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FontStyle {
     Regular,
     Bold,
@@ -253,6 +269,17 @@ impl DesignSystem {
         self.glass_material
     }
 
+    pub fn glass_style_for_surface(&self, surface: GlassSurface) -> GlassStyleObject {
+        match surface {
+            GlassSurface::CommandHub => {
+                glass_style_from_material(self.glass_material, surface, 70, 20)
+            }
+            GlassSurface::PrimaryPanel => {
+                glass_style_from_material(self.glass_material, surface, 64, 16)
+            }
+        }
+    }
+
     pub fn font_context(&self) -> &FontContext {
         &self.font_context
     }
@@ -357,6 +384,22 @@ fn neon_night_animation_convention() -> AnimationConvention {
                 max_percent: 70,
             },
         },
+    }
+}
+
+fn glass_style_from_material(
+    material: GlassMaterial,
+    surface: GlassSurface,
+    background_alpha_percent: u8,
+    backdrop_blur_px: u8,
+) -> GlassStyleObject {
+    GlassStyleObject {
+        surface,
+        background: material.background,
+        background_alpha_percent,
+        backdrop_blur_px,
+        fine_grain_opacity_percent: material.fine_grain_opacity_percent,
+        specular_edge: material.specular_edge,
     }
 }
 
@@ -494,5 +537,29 @@ mod tests {
                 },
             }
         );
+    }
+
+    #[test]
+    fn glass共通スタイルはcommand_hub向けプリセットを返す() {
+        let design_system = DesignSystem::neon_night_glass();
+        let style = design_system.glass_style_for_surface(GlassSurface::CommandHub);
+
+        assert_eq!(style.surface, GlassSurface::CommandHub);
+        assert_eq!(style.backdrop_blur_px, 20);
+        assert_eq!(style.fine_grain_opacity_percent, 8);
+        assert_eq!(style.specular_edge.width_tenths_px, 5);
+        assert_eq!(style.background_alpha_percent, 70);
+    }
+
+    #[test]
+    fn glass共通スタイルは主要パネル向けプリセットを返す() {
+        let design_system = DesignSystem::neon_night_glass();
+        let style = design_system.glass_style_for_surface(GlassSurface::PrimaryPanel);
+
+        assert_eq!(style.surface, GlassSurface::PrimaryPanel);
+        assert_eq!(style.backdrop_blur_px, 16);
+        assert_eq!(style.fine_grain_opacity_percent, 8);
+        assert_eq!(style.specular_edge.width_tenths_px, 5);
+        assert_eq!(style.background_alpha_percent, 64);
     }
 }
