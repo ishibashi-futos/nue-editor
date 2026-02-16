@@ -5,6 +5,7 @@ pub mod focus_layer;
 pub mod legacy_file_tree;
 pub mod legacy_workspace_editor;
 pub mod markdown_service;
+pub mod minimap_service;
 pub mod terminal_session;
 pub mod workspace_rail;
 pub mod workspace_registry;

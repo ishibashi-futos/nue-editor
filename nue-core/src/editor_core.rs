@@ -2,6 +2,10 @@ use crate::markdown_service::{
     MarkdownDiffObservedEvent, MarkdownFeature, MarkdownFeatureRequestedEvent,
     MarkdownPreviewSyncedEvent, MarkdownService, MarkdownServiceEvent,
 };
+use crate::minimap_service::{
+    MinimapFocusIdSyncedEvent, MinimapOverlay, MinimapOverlaysUpdatedEvent, MinimapService,
+    MinimapServiceEvent, MinimapSnapshot,
+};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
@@ -179,6 +183,19 @@ pub enum ExecuteMarkdownFeatureOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateMinimapOverlaysOutcome {
+    NoBuffer,
+    Updated { overlay_count: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncMinimapFocusOutcome {
+    NoBuffer,
+    FocusNotFound,
+    Synced { focus_id: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BufferOpenedEvent {
     pub file_path: PathBuf,
 }
@@ -252,6 +269,8 @@ pub enum EditorCoreEvent {
     MarkdownFeatureRequested(MarkdownFeatureRequestedEvent),
     MarkdownDiffObserved(MarkdownDiffObservedEvent),
     MarkdownPreviewSynced(MarkdownPreviewSyncedEvent),
+    MinimapOverlaysUpdated(MinimapOverlaysUpdatedEvent),
+    MinimapFocusIdSynced(MinimapFocusIdSyncedEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -260,6 +279,7 @@ pub struct EditorCore {
     shortcuts: HashMap<KeyChord, EditorCommand>,
     context_menu: EditorContextMenu,
     markdown_service: MarkdownService,
+    minimap_service: MinimapService,
     events: VecDeque<EditorCoreEvent>,
 }
 
@@ -270,6 +290,7 @@ impl EditorCore {
             shortcuts: HashMap::new(),
             context_menu: EditorContextMenu::default(),
             markdown_service: MarkdownService::new(),
+            minimap_service: MinimapService::new(),
             events: VecDeque::new(),
         }
     }
@@ -285,6 +306,8 @@ impl EditorCore {
         let snapshot = buffer.snapshot();
 
         self.active_buffer = Some(buffer);
+        self.minimap_service
+            .on_buffer_opened(file_path.as_path(), snapshot.content.as_str());
         self.close_context_menu();
         self.events
             .push_back(EditorCoreEvent::BufferOpened(BufferOpenedEvent {
@@ -347,6 +370,8 @@ impl EditorCore {
         let cursor_char = buffer.cursor_char;
         let file_path = buffer.file_path.clone();
         let current_content = buffer.content.clone();
+        self.minimap_service
+            .on_buffer_updated(current_content.as_str());
         self.push_buffer_edited_event(file_path.clone(), revision, cursor_char, is_dirty);
         self.push_markdown_observation_events(
             &file_path,
@@ -380,6 +405,8 @@ impl EditorCore {
         let cursor_char = buffer.cursor_char;
         let file_path = buffer.file_path.clone();
         let current_content = buffer.content.clone();
+        self.minimap_service
+            .on_buffer_updated(current_content.as_str());
         self.push_buffer_edited_event(file_path.clone(), revision, cursor_char, is_dirty);
         self.push_markdown_observation_events(
             &file_path,
@@ -413,6 +440,8 @@ impl EditorCore {
         let cursor_char = buffer.cursor_char;
         let file_path = buffer.file_path.clone();
         let current_content = buffer.content.clone();
+        self.minimap_service
+            .on_buffer_updated(current_content.as_str());
         self.push_buffer_edited_event(file_path.clone(), revision, cursor_char, is_dirty);
         self.push_markdown_observation_events(
             &file_path,
@@ -548,6 +577,44 @@ impl EditorCore {
         ExecuteMarkdownFeatureOutcome::Executed { feature }
     }
 
+    pub fn minimap_snapshot(&self) -> Option<MinimapSnapshot> {
+        self.minimap_service.snapshot()
+    }
+
+    pub fn update_minimap_overlays(
+        &mut self,
+        overlays: Vec<MinimapOverlay>,
+    ) -> UpdateMinimapOverlaysOutcome {
+        if self.active_buffer.is_none() {
+            return UpdateMinimapOverlaysOutcome::NoBuffer;
+        }
+        let Some(event) = self.minimap_service.replace_overlays(overlays) else {
+            return UpdateMinimapOverlaysOutcome::NoBuffer;
+        };
+        let overlay_count = self
+            .minimap_service
+            .snapshot()
+            .map(|snapshot| snapshot.overlays.len())
+            .unwrap_or(0);
+        self.push_minimap_service_event(event);
+
+        UpdateMinimapOverlaysOutcome::Updated { overlay_count }
+    }
+
+    pub fn sync_minimap_focus_id(&mut self, focus_id: &str) -> SyncMinimapFocusOutcome {
+        if self.active_buffer.is_none() {
+            return SyncMinimapFocusOutcome::NoBuffer;
+        }
+        let Some(event) = self.minimap_service.sync_focus_id(focus_id) else {
+            return SyncMinimapFocusOutcome::FocusNotFound;
+        };
+        self.push_minimap_service_event(event);
+
+        SyncMinimapFocusOutcome::Synced {
+            focus_id: focus_id.to_string(),
+        }
+    }
+
     pub fn context_menu(&self) -> &EditorContextMenu {
         &self.context_menu
     }
@@ -645,6 +712,17 @@ impl EditorCore {
             MarkdownServiceEvent::PreviewSynced(event) => self
                 .events
                 .push_back(EditorCoreEvent::MarkdownPreviewSynced(event)),
+        }
+    }
+
+    fn push_minimap_service_event(&mut self, event: MinimapServiceEvent) {
+        match event {
+            MinimapServiceEvent::OverlaysUpdated(event) => self
+                .events
+                .push_back(EditorCoreEvent::MinimapOverlaysUpdated(event)),
+            MinimapServiceEvent::FocusIdSynced(event) => self
+                .events
+                .push_back(EditorCoreEvent::MinimapFocusIdSynced(event)),
         }
     }
 
@@ -1242,6 +1320,83 @@ mod tests {
                     heading_count: 2,
                 }),
             ]
+        );
+    }
+
+    #[test]
+    fn minimapに検索結果とai_git差分オーバーレイを反映できる() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "one\ntwo\nthree\nfour");
+        core.drain_events();
+
+        assert_eq!(
+            core.update_minimap_overlays(vec![
+                MinimapOverlay::search_result(2),
+                MinimapOverlay::ai_diff(3, "focus-ai-1"),
+                MinimapOverlay::git_diff(4, "focus-git-1"),
+            ]),
+            UpdateMinimapOverlaysOutcome::Updated { overlay_count: 3 }
+        );
+
+        assert_eq!(
+            core.minimap_snapshot(),
+            Some(MinimapSnapshot {
+                file_path: PathBuf::from("docs/readme.md"),
+                line_count: 4,
+                overlays: vec![
+                    MinimapOverlay::search_result(2),
+                    MinimapOverlay::ai_diff(3, "focus-ai-1"),
+                    MinimapOverlay::git_diff(4, "focus-git-1"),
+                ],
+                active_focus_id: None,
+            })
+        );
+        assert_eq!(
+            core.drain_events(),
+            vec![EditorCoreEvent::MinimapOverlaysUpdated(
+                MinimapOverlaysUpdatedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    overlay_count: 3,
+                }
+            )]
+        );
+    }
+
+    #[test]
+    fn minimapのfocus_id同期でcommand_hubとstructure_path向けイベントを発火する() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "one\ntwo\nthree\nfour");
+        core.drain_events();
+        core.update_minimap_overlays(vec![
+            MinimapOverlay::ai_diff(3, "focus-ai-1"),
+            MinimapOverlay::git_diff(4, "focus-git-1"),
+        ]);
+        core.drain_events();
+
+        assert_eq!(
+            core.sync_minimap_focus_id("focus-ai-1"),
+            SyncMinimapFocusOutcome::Synced {
+                focus_id: "focus-ai-1".to_string(),
+            }
+        );
+        assert_eq!(
+            core.minimap_snapshot()
+                .expect("minimap snapshot が存在する")
+                .active_focus_id,
+            Some("focus-ai-1".to_string())
+        );
+        assert_eq!(
+            core.drain_events(),
+            vec![EditorCoreEvent::MinimapFocusIdSynced(
+                MinimapFocusIdSyncedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    focus_id: "focus-ai-1".to_string(),
+                    targets: vec![
+                        crate::minimap_service::FocusSyncTarget::CommandHub,
+                        crate::minimap_service::FocusSyncTarget::StructurePath,
+                    ],
+                }
+            )]
         );
     }
 
