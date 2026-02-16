@@ -10,14 +10,14 @@ pub enum LegacyFileTreeNode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LegacyDirectoryNode {
     pub name: String,
-    pub absolute_path: String,
+    pub absolute_path: PathBuf,
     pub children: Vec<LegacyFileTreeNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LegacyFileNode {
     pub name: String,
-    pub absolute_path: String,
+    pub absolute_path: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,26 +48,32 @@ impl LegacyFileTree {
 }
 
 fn build_directory_node(path: &Path) -> Result<LegacyDirectoryNode, LegacyFileTreeBuildError> {
-    let name = file_name_from_path(path).unwrap_or_else(|| path.to_string_lossy().to_string());
-    let absolute_path = path.to_string_lossy().to_string();
+    let name = file_name_from_path(path).unwrap_or_else(|| path.display().to_string());
+    let absolute_path = path.to_path_buf();
     let mut children = Vec::new();
 
     for entry_result in fs::read_dir(path).map_err(map_io_error)? {
-        let entry = entry_result.map_err(map_io_error)?;
+        let entry = match entry_result {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
         let entry_path = entry.path();
-        let file_type = entry.file_type().map_err(map_io_error)?;
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(_) => continue,
+        };
         if file_type.is_dir() {
-            children.push(LegacyFileTreeNode::Directory(build_directory_node(
-                entry_path.as_path(),
-            )?));
+            if let Ok(directory) = build_directory_node(entry_path.as_path()) {
+                children.push(LegacyFileTreeNode::Directory(directory));
+            }
             continue;
         }
         if file_type.is_file() {
             let name = file_name_from_path(entry_path.as_path())
-                .unwrap_or_else(|| entry_path.to_string_lossy().to_string());
+                .unwrap_or_else(|| entry_path.display().to_string());
             children.push(LegacyFileTreeNode::File(LegacyFileNode {
                 name,
-                absolute_path: entry_path.to_string_lossy().to_string(),
+                absolute_path: entry_path,
             }));
         }
     }
@@ -82,7 +88,7 @@ fn build_directory_node(path: &Path) -> Result<LegacyDirectoryNode, LegacyFileTr
 
 fn file_name_from_path(path: &Path) -> Option<String> {
     path.file_name()
-        .map(|name| name.to_string_lossy().to_string())
+        .map(|name| name.to_string_lossy().into_owned())
 }
 
 fn compare_tree_node(left: &LegacyFileTreeNode, right: &LegacyFileTreeNode) -> std::cmp::Ordering {
@@ -111,6 +117,8 @@ fn map_io_error(error: std::io::Error) -> LegacyFileTreeBuildError {
 mod tests {
     use super::{LegacyFileTree, LegacyFileTreeBuildError, LegacyFileTreeNode};
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -127,7 +135,7 @@ mod tests {
 
         let root = tree.root();
         assert_eq!(
-            PathBuf::from(&root.absolute_path),
+            root.absolute_path,
             fs::canonicalize(root_dir.path()).expect("canonicalize root path")
         );
         assert_eq!(root.children.len(), 2);
@@ -177,8 +185,34 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn 子ディレクトリの読み取りに失敗しても構築を継続する() {
+        let mut root_dir = TestDir::new("legacy-tree-partial-io");
+        root_dir.create_dir("open");
+        root_dir.create_file("open/ok.txt", "ok");
+        root_dir.create_dir("blocked");
+        root_dir.restrict_dir("blocked");
+
+        let tree = LegacyFileTree::build(root_dir.path().to_str().expect("utf-8 path"))
+            .expect("部分的なアクセス不能はスキップされるべき");
+
+        let root = tree.root();
+        assert_eq!(root.children.len(), 1);
+        match &root.children[0] {
+            LegacyFileTreeNode::Directory(directory) => {
+                assert_eq!(directory.name, "open");
+            }
+            LegacyFileTreeNode::File(_) => {
+                panic!("open ディレクトリだけが残る想定");
+            }
+        }
+    }
+
     struct TestDir {
         path: PathBuf,
+        #[cfg(unix)]
+        restricted_dirs: Vec<PathBuf>,
     }
 
     impl TestDir {
@@ -195,7 +229,11 @@ mod tests {
 
             fs::create_dir_all(&path).expect("create temp dir");
 
-            Self { path }
+            Self {
+                path,
+                #[cfg(unix)]
+                restricted_dirs: Vec::new(),
+            }
         }
 
         fn path(&self) -> &PathBuf {
@@ -213,10 +251,30 @@ mod tests {
             }
             fs::write(file_path, content).expect("write test file");
         }
+
+        #[cfg(unix)]
+        fn restrict_dir(&mut self, relative_path: &str) {
+            let path = self.path.join(relative_path);
+            let mut permissions = fs::metadata(&path).expect("read metadata").permissions();
+            permissions.set_mode(0o000);
+            fs::set_permissions(&path, permissions).expect("set restricted permissions");
+            self.restricted_dirs.push(path);
+        }
     }
 
     impl Drop for TestDir {
         fn drop(&mut self) {
+            #[cfg(unix)]
+            for restricted_dir in &self.restricted_dirs {
+                if restricted_dir.exists() {
+                    let mut permissions = fs::metadata(restricted_dir)
+                        .expect("read restricted metadata")
+                        .permissions();
+                    permissions.set_mode(0o755);
+                    fs::set_permissions(restricted_dir, permissions)
+                        .expect("restore restricted permissions");
+                }
+            }
             if self.path.exists() {
                 fs::remove_dir_all(&self.path).expect("remove temp dir");
             }

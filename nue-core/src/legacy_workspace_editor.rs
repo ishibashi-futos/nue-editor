@@ -3,12 +3,14 @@ use crate::editor_core::{
     MarkSavedOutcome, SaveOutcome, SaveTrigger,
 };
 use crate::legacy_file_tree::{LegacyFileTree, LegacyFileTreeBuildError};
-use std::fs;
+use std::ffi::OsString;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct LegacyWorkspaceEditor {
-    workspace_root: String,
+    workspace_root: PathBuf,
     file_tree: LegacyFileTree,
     editor_core: EditorCore,
 }
@@ -29,9 +31,10 @@ pub enum SelectFileOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SaveFileOutcome {
-    Saved { file_path: String, revision: u64 },
+    Saved { file_path: PathBuf, revision: u64 },
     NoBuffer,
     NotDirty,
+    OutsideWorkspace,
     Io,
 }
 
@@ -44,7 +47,7 @@ impl LegacyWorkspaceEditor {
         })?;
 
         Ok(Self {
-            workspace_root: canonical_root.to_string_lossy().to_string(),
+            workspace_root: canonical_root,
             file_tree,
             editor_core: EditorCore::new(),
         })
@@ -79,10 +82,7 @@ impl LegacyWorkspaceEditor {
             Ok(content) => content,
             Err(_) => return SelectFileOutcome::Io,
         };
-        SelectFileOutcome::Selected(
-            self.editor_core
-                .open_file(canonical_path.to_string_lossy().to_string(), content),
-        )
+        SelectFileOutcome::Selected(self.editor_core.open_file(canonical_path, content))
     }
 
     pub fn set_cursor(&mut self, cursor_char: usize) -> CursorMoveOutcome {
@@ -108,17 +108,21 @@ impl LegacyWorkspaceEditor {
             SaveOutcome::Requested(request) => request,
         };
 
-        if fs::write(
-            save_request.file_path.as_str(),
-            save_request.content.as_bytes(),
-        )
-        .is_err()
-        {
+        let save_path = match fs::canonicalize(&save_request.file_path) {
+            Ok(path) => path,
+            Err(_) => return SaveFileOutcome::Io,
+        };
+        if !self.is_inside_workspace(save_path.as_path()) {
+            return SaveFileOutcome::OutsideWorkspace;
+        }
+
+        if write_file_atomically(save_path.as_path(), save_request.content.as_bytes()).is_err() {
             return SaveFileOutcome::Io;
         }
+
         match self.editor_core.mark_saved(save_request.revision) {
             MarkSavedOutcome::Saved { revision } => SaveFileOutcome::Saved {
-                file_path: save_request.file_path,
+                file_path: save_path,
                 revision,
             },
             MarkSavedOutcome::NoBuffer | MarkSavedOutcome::StaleRevision { .. } => {
@@ -132,14 +136,64 @@ impl LegacyWorkspaceEditor {
     }
 
     fn is_inside_workspace(&self, file_path: &Path) -> bool {
-        file_path.starts_with(Path::new(self.workspace_root.as_str()))
+        file_path.starts_with(self.workspace_root.as_path())
     }
+}
+
+fn write_file_atomically(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    let parent_dir = path
+        .parent()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "missing parent"))?;
+    let file_name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "missing file name")
+    })?;
+
+    let temp_path = create_unique_temp_path(parent_dir, file_name)?;
+    let write_result = (|| -> std::io::Result<()> {
+        let mut temp_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)?;
+        temp_file.write_all(content)?;
+        temp_file.sync_all()?;
+
+        let permissions = fs::metadata(path)?.permissions();
+        fs::set_permissions(&temp_path, permissions)?;
+        fs::rename(&temp_path, path)?;
+        Ok(())
+    })();
+
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    write_result
+}
+
+fn create_unique_temp_path(
+    parent_dir: &Path,
+    file_name: &std::ffi::OsStr,
+) -> std::io::Result<PathBuf> {
+    let process_id = std::process::id();
+    for sequence in 0..1024 {
+        let mut temp_name = OsString::from(file_name);
+        temp_name.push(format!(".nue-saving-{process_id}-{sequence}.tmp"));
+        let temp_path = parent_dir.join(temp_name);
+        if !temp_path.exists() {
+            return Ok(temp_path);
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "failed to reserve temp file path",
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::editor_core::{CursorMoveOutcome, EditOutcome, HistoryOutcome};
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -156,10 +210,7 @@ mod tests {
         let SelectFileOutcome::Selected(snapshot) = outcome else {
             panic!("ファイル選択が成功する想定");
         };
-        assert_eq!(
-            snapshot.file_path,
-            canonical_file_path.to_string_lossy().to_string()
-        );
+        assert_eq!(snapshot.file_path, canonical_file_path);
         assert_eq!(snapshot.content, "Hello");
         assert_eq!(snapshot.cursor_char, 0);
         assert_eq!(snapshot.revision, 0);
@@ -193,9 +244,7 @@ mod tests {
             workspace_editor.save_active_file(),
             SaveFileOutcome::Saved {
                 file_path: fs::canonicalize(&file_path)
-                    .expect("比較用にテストファイルパスを正規化できる必要がある")
-                    .to_string_lossy()
-                    .to_string(),
+                    .expect("比較用にテストファイルパスを正規化できる必要がある"),
                 revision: 1,
             }
         );
@@ -248,6 +297,45 @@ mod tests {
         assert_eq!(
             workspace_editor.select_file(outside_file.to_str().expect("utf-8 path")),
             SelectFileOutcome::OutsideWorkspace
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 保存直前にシンボリックリンクへ差し替えられた場合は拒否する() {
+        let fixture = WorkspaceFixture::new("legacy-workspace-editor-save-boundary");
+        let outside_fixture = WorkspaceFixture::new("legacy-workspace-editor-save-outside");
+
+        let workspace_file = fixture.write_file("notes/today.md", "Hello");
+        let outside_file = outside_fixture.write_file("outside.md", "blocked");
+        let mut workspace_editor =
+            LegacyWorkspaceEditor::open(fixture.path_str()).expect("workspaceを開けるべき");
+
+        let select = workspace_editor.select_file(workspace_file.to_str().expect("utf-8 path"));
+        assert!(matches!(select, SelectFileOutcome::Selected(_)));
+        assert_eq!(
+            workspace_editor.set_cursor(5),
+            CursorMoveOutcome::Moved { cursor_char: 5 }
+        );
+        assert_eq!(
+            workspace_editor.insert_text(" world"),
+            EditOutcome::Edited {
+                revision: 1,
+                cursor_char: 11,
+                is_dirty: true,
+            }
+        );
+
+        fs::remove_file(&workspace_file).expect("replace target file");
+        symlink(&outside_file, &workspace_file).expect("create malicious symlink");
+
+        assert_eq!(
+            workspace_editor.save_active_file(),
+            SaveFileOutcome::OutsideWorkspace
+        );
+        assert_eq!(
+            fs::read_to_string(&outside_file).expect("outside file should be intact"),
+            "blocked"
         );
     }
 

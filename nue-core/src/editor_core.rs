@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum KeyModifier {
@@ -41,7 +42,7 @@ pub enum SaveTrigger {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditorSaveRequest {
-    pub file_path: String,
+    pub file_path: PathBuf,
     pub content: String,
     pub revision: u64,
     pub trigger: SaveTrigger,
@@ -49,7 +50,7 @@ pub struct EditorSaveRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditorBufferSnapshot {
-    pub file_path: String,
+    pub file_path: PathBuf,
     pub content: String,
     pub cursor_char: usize,
     pub revision: u64,
@@ -123,12 +124,12 @@ pub enum ShortcutDispatchOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BufferOpenedEvent {
-    pub file_path: String,
+    pub file_path: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BufferEditedEvent {
-    pub file_path: String,
+    pub file_path: PathBuf,
     pub revision: u64,
     pub cursor_char: usize,
     pub is_dirty: bool,
@@ -136,7 +137,7 @@ pub struct BufferEditedEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CursorMovedEvent {
-    pub file_path: String,
+    pub file_path: PathBuf,
     pub cursor_char: usize,
 }
 
@@ -154,7 +155,7 @@ pub struct ShortcutDispatchedEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedEvent {
-    pub file_path: String,
+    pub file_path: PathBuf,
     pub revision: u64,
 }
 
@@ -187,7 +188,7 @@ impl EditorCore {
 
     pub fn open_file(
         &mut self,
-        file_path: impl Into<String>,
+        file_path: impl Into<PathBuf>,
         content: impl Into<String>,
     ) -> EditorBufferSnapshot {
         let file_path = file_path.into();
@@ -399,7 +400,7 @@ impl EditorCore {
 
     fn push_buffer_edited_event(
         &mut self,
-        file_path: String,
+        file_path: PathBuf,
         revision: u64,
         cursor_char: usize,
         is_dirty: bool,
@@ -422,7 +423,7 @@ impl Default for EditorCore {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct EditorBuffer {
-    file_path: String,
+    file_path: PathBuf,
     content: String,
     cursor_char: usize,
     revision: u64,
@@ -432,7 +433,7 @@ struct EditorBuffer {
 }
 
 impl EditorBuffer {
-    fn new(file_path: String, content: String) -> Self {
+    fn new(file_path: PathBuf, content: String) -> Self {
         Self {
             file_path,
             content: content.clone(),
@@ -504,7 +505,7 @@ mod tests {
         assert_eq!(
             snapshot,
             EditorBufferSnapshot {
-                file_path: "docs/readme.md".to_string(),
+                file_path: PathBuf::from("docs/readme.md"),
                 content: "# heading".to_string(),
                 cursor_char: 0,
                 revision: 0,
@@ -516,7 +517,7 @@ mod tests {
         assert_eq!(
             core.drain_events(),
             vec![EditorCoreEvent::BufferOpened(BufferOpenedEvent {
-                file_path: "docs/readme.md".to_string(),
+                file_path: PathBuf::from("docs/readme.md"),
             })]
         );
     }
@@ -581,7 +582,7 @@ mod tests {
         let SaveOutcome::Requested(request) = save else {
             panic!("保存要求が返る想定");
         };
-        assert_eq!(request.file_path, "docs/readme.md");
+        assert_eq!(request.file_path, PathBuf::from("docs/readme.md"));
         assert_eq!(request.content, "Hello!");
         assert_eq!(request.revision, 1);
 
