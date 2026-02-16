@@ -32,22 +32,20 @@ Rust・GPUI製エディタアプリケーション
 
 ## Development Workflow
 
-1. Read log: 過去の作業履歴をチェックする
-   1. 最新のコミットログ 5件 を確認し、作業履歴から現在の状態を読み取る
-2. Red: インタフェースを定義し、テストを書く
+1. Red: インタフェースを定義し、テストを書く
    1. 最小限の関数、クラス実装を定義する
    2. 最小実装に対するテストケースを書く
    3. Acceptance Criteria: テスト実行により、期待通り失敗する
-3. Green: テストケースを最短でパスする実装コードを書く
+2. Green: テストケースを最短でパスする実装コードを書く
    1. 最短の実装で、テストケースをパスさせる
    2. Acceptance Criteria: 全てのテストがパスすること
-4. Refactor: リファクタリングでコードを整える
+3. Refactor: リファクタリングでコードを整える
    1. コードを整える: 変数名の整理、重複の削除、関数の分割
    2. Acceptance Criteria:
       1. `scripts/sanity.sh` を実行し、lint error / format error / unit test errorが残っていないこと
       2. Tidyが完了し認知負荷が下がること
       3. Dead codeや不要なコメントが削除されること
-5. Sync: Commit&進捗の可視化を行う
+4. Sync: Commit&進捗の可視化を行う
    1. 作業のコミットを行う
       1. コミットメッセージは、次のフォーマットに従う `<type>: <short title>\n<description>`
          1. type: fix, feat, docs, chroe のいずれかを使用する
