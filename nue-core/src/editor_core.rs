@@ -32,6 +32,9 @@ pub enum EditorCommand {
     Save,
     Undo,
     Redo,
+    QuickOpen,
+    FindInFile,
+    FindInWorkspace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,6 +114,9 @@ pub enum CommandExecutionOutcome {
     Save(SaveOutcome),
     Undo(HistoryOutcome),
     Redo(HistoryOutcome),
+    QuickOpen,
+    FindInFile,
+    FindInWorkspace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -371,6 +377,16 @@ impl EditorCore {
         }
     }
 
+    pub fn register_default_shortcuts(&mut self) -> Vec<(KeyChord, RegisterShortcutOutcome)> {
+        let bindings = default_shortcut_bindings();
+        let mut registered = Vec::with_capacity(bindings.len());
+        for (chord, command) in bindings {
+            let outcome = self.register_shortcut(chord.clone(), command);
+            registered.push((chord, outcome));
+        }
+        registered
+    }
+
     pub fn dispatch_shortcut(&mut self, chord: &KeyChord) -> ShortcutDispatchOutcome {
         let Some(command) = self.shortcuts.get(chord).copied() else {
             return ShortcutDispatchOutcome::Unhandled;
@@ -382,6 +398,9 @@ impl EditorCore {
             ),
             EditorCommand::Undo => CommandExecutionOutcome::Undo(self.undo()),
             EditorCommand::Redo => CommandExecutionOutcome::Redo(self.redo()),
+            EditorCommand::QuickOpen => CommandExecutionOutcome::QuickOpen,
+            EditorCommand::FindInFile => CommandExecutionOutcome::FindInFile,
+            EditorCommand::FindInWorkspace => CommandExecutionOutcome::FindInWorkspace,
         };
 
         self.events.push_back(EditorCoreEvent::ShortcutDispatched(
@@ -488,12 +507,69 @@ fn char_to_byte_index(content: &str, char_index: usize) -> usize {
         .unwrap_or(content.len())
 }
 
+fn default_shortcut_bindings() -> Vec<(KeyChord, EditorCommand)> {
+    vec![
+        (
+            KeyChord::new("S", vec![KeyModifier::CmdOrCtrl]),
+            EditorCommand::Save,
+        ),
+        (
+            KeyChord::new("Z", vec![KeyModifier::CmdOrCtrl]),
+            EditorCommand::Undo,
+        ),
+        (
+            KeyChord::new("Z", vec![KeyModifier::CmdOrCtrl, KeyModifier::Shift]),
+            EditorCommand::Redo,
+        ),
+        (
+            KeyChord::new("Y", vec![KeyModifier::CmdOrCtrl]),
+            EditorCommand::Redo,
+        ),
+        (
+            KeyChord::new("P", vec![KeyModifier::CmdOrCtrl]),
+            EditorCommand::QuickOpen,
+        ),
+        (
+            KeyChord::new("F", vec![KeyModifier::CmdOrCtrl]),
+            EditorCommand::FindInFile,
+        ),
+        (
+            KeyChord::new("F", vec![KeyModifier::CmdOrCtrl, KeyModifier::Shift]),
+            EditorCommand::FindInWorkspace,
+        ),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn save_chord() -> KeyChord {
         KeyChord::new("S", vec![KeyModifier::CmdOrCtrl])
+    }
+
+    fn undo_chord() -> KeyChord {
+        KeyChord::new("Z", vec![KeyModifier::CmdOrCtrl])
+    }
+
+    fn redo_chord() -> KeyChord {
+        KeyChord::new("Z", vec![KeyModifier::CmdOrCtrl, KeyModifier::Shift])
+    }
+
+    fn redo_windows_chord() -> KeyChord {
+        KeyChord::new("Y", vec![KeyModifier::CmdOrCtrl])
+    }
+
+    fn quick_open_chord() -> KeyChord {
+        KeyChord::new("P", vec![KeyModifier::CmdOrCtrl])
+    }
+
+    fn find_in_file_chord() -> KeyChord {
+        KeyChord::new("F", vec![KeyModifier::CmdOrCtrl])
+    }
+
+    fn find_in_workspace_chord() -> KeyChord {
+        KeyChord::new("F", vec![KeyModifier::CmdOrCtrl, KeyModifier::Shift])
     }
 
     #[test]
@@ -651,5 +727,100 @@ mod tests {
 
         assert_eq!(command, EditorCommand::Save);
         assert_eq!(request.content, "Hello!");
+    }
+
+    #[test]
+    fn 既定ショートカット登録でrequired_chordsを一括登録できる() {
+        let mut core = EditorCore::new();
+        let registered = core.register_default_shortcuts();
+
+        assert_eq!(registered.len(), 7);
+        assert!(
+            registered
+                .iter()
+                .all(|(_, outcome)| *outcome == RegisterShortcutOutcome::Registered)
+        );
+    }
+
+    #[test]
+    fn cmd_ctrl_p_f_shift_fでeditor_commandを実行できる() {
+        let mut core = EditorCore::new();
+        core.register_default_shortcuts();
+
+        assert_eq!(
+            core.dispatch_shortcut(&quick_open_chord()),
+            ShortcutDispatchOutcome::Executed {
+                command: EditorCommand::QuickOpen,
+                outcome: CommandExecutionOutcome::QuickOpen,
+            }
+        );
+        assert_eq!(
+            core.dispatch_shortcut(&find_in_file_chord()),
+            ShortcutDispatchOutcome::Executed {
+                command: EditorCommand::FindInFile,
+                outcome: CommandExecutionOutcome::FindInFile,
+            }
+        );
+        assert_eq!(
+            core.dispatch_shortcut(&find_in_workspace_chord()),
+            ShortcutDispatchOutcome::Executed {
+                command: EditorCommand::FindInWorkspace,
+                outcome: CommandExecutionOutcome::FindInWorkspace,
+            }
+        );
+    }
+
+    #[test]
+    fn cmd_ctrl_zとcmd_shift_zとctrl_yでundo_redoを実行できる() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "Hello");
+        core.set_cursor(5);
+        core.insert_text(" world");
+        core.register_default_shortcuts();
+
+        assert_eq!(
+            core.dispatch_shortcut(&undo_chord()),
+            ShortcutDispatchOutcome::Executed {
+                command: EditorCommand::Undo,
+                outcome: CommandExecutionOutcome::Undo(HistoryOutcome::Applied {
+                    revision: 2,
+                    cursor_char: 5,
+                    is_dirty: false,
+                }),
+            }
+        );
+        assert_eq!(
+            core.dispatch_shortcut(&redo_chord()),
+            ShortcutDispatchOutcome::Executed {
+                command: EditorCommand::Redo,
+                outcome: CommandExecutionOutcome::Redo(HistoryOutcome::Applied {
+                    revision: 3,
+                    cursor_char: 11,
+                    is_dirty: true,
+                }),
+            }
+        );
+        assert_eq!(
+            core.dispatch_shortcut(&undo_chord()),
+            ShortcutDispatchOutcome::Executed {
+                command: EditorCommand::Undo,
+                outcome: CommandExecutionOutcome::Undo(HistoryOutcome::Applied {
+                    revision: 4,
+                    cursor_char: 5,
+                    is_dirty: false,
+                }),
+            }
+        );
+        assert_eq!(
+            core.dispatch_shortcut(&redo_windows_chord()),
+            ShortcutDispatchOutcome::Executed {
+                command: EditorCommand::Redo,
+                outcome: CommandExecutionOutcome::Redo(HistoryOutcome::Applied {
+                    revision: 5,
+                    cursor_char: 11,
+                    is_dirty: true,
+                }),
+            }
+        );
     }
 }
