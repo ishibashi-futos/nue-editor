@@ -45,8 +45,8 @@ pub enum PickerExecuteOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PickerCancelOutcome {
     Noop,
-    Closed,
-    BackToListing,
+    Closed { candidate_id: Option<String> },
+    BackToListing { candidate_id: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,13 +258,21 @@ impl CommandPicker {
         }
 
         if self.state == PickerViewState::Confirming {
+            let candidate_id = self
+                .confirming_index
+                .and_then(|index| self.visible_candidates.get(index))
+                .map(|candidate| candidate.id.clone());
             self.state = PickerViewState::Listing;
             self.confirming_index = None;
-            return PickerCancelOutcome::BackToListing;
+            return PickerCancelOutcome::BackToListing { candidate_id };
         }
 
+        let candidate_id = self
+            .selected_index
+            .and_then(|index| self.visible_candidates.get(index))
+            .map(|candidate| candidate.id.clone());
         self.close();
-        PickerCancelOutcome::Closed
+        PickerCancelOutcome::Closed { candidate_id }
     }
 
     pub fn select_next(&mut self) -> PickerSelectOutcome {
@@ -364,6 +372,10 @@ impl CommandHubSession {
         self.picker.request_execute_selected()
     }
 
+    pub fn confirm_selected_candidate(&mut self) -> PickerExecuteOutcome {
+        self.picker.confirm_execute()
+    }
+
     pub fn cancel_picker(&mut self) -> PickerCancelOutcome {
         self.picker.cancel()
     }
@@ -377,10 +389,14 @@ impl Default for CommandHubSession {
 
 fn should_open_picker(command: &ParsedCommand) -> bool {
     match command.mode {
-        CommandMode::Action => command.verb == "list",
+        CommandMode::Action => should_open_action_picker(command.verb.as_str()),
         CommandMode::Navigation => true,
         CommandMode::Intent => false,
     }
+}
+
+fn should_open_action_picker(verb: &str) -> bool {
+    matches!(verb, "list" | "remove" | "close" | "kill")
 }
 
 impl CommandHubVisibilityController {
@@ -665,7 +681,12 @@ mod tests {
             }
         );
 
-        assert_eq!(picker.cancel(), PickerCancelOutcome::Closed);
+        assert_eq!(
+            picker.cancel(),
+            PickerCancelOutcome::Closed {
+                candidate_id: Some("candidate-action-1".to_string()),
+            }
+        );
         assert_eq!(picker.snapshot().state, PickerViewState::Closed);
     }
 
@@ -697,7 +718,12 @@ mod tests {
         picker.open(vec![destructive_candidate()]);
         let _ = picker.request_execute_selected();
 
-        assert_eq!(picker.cancel(), PickerCancelOutcome::BackToListing);
+        assert_eq!(
+            picker.cancel(),
+            PickerCancelOutcome::BackToListing {
+                candidate_id: Some("candidate-action-2".to_string()),
+            }
+        );
         assert_eq!(picker.snapshot().state, PickerViewState::Listing);
     }
 
@@ -858,5 +884,14 @@ mod tests {
         session.apply_input("> Terminal: Run cargo test", vec![action_candidate()]);
 
         assert_eq!(session.snapshot().picker.state, PickerViewState::Closed);
+    }
+
+    #[test]
+    fn 破壊的action入力時はpickerを開く() {
+        let mut session = CommandHubSession::new();
+
+        session.apply_input("> Workspace: Remove", vec![destructive_candidate()]);
+
+        assert_eq!(session.snapshot().picker.state, PickerViewState::Listing);
     }
 }

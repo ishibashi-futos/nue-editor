@@ -1,4 +1,7 @@
-use crate::command_hub::{CommandMode, ParsedCommand, PickerCandidate};
+use crate::command_hub::{
+    CommandHubSession, CommandMode, ParsedCommand, PickerCancelOutcome, PickerCandidate,
+    PickerExecuteOutcome,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelTarget {
@@ -108,6 +111,15 @@ pub enum CommandActionError {
 pub enum CommandActionOutcome {
     Executed(CommandActionEvent),
     Failed(CommandActionError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandHubDispatchOutcome {
+    NoSelection,
+    NeedsConfirmation { candidate_id: String },
+    Executed(CommandActionEvent),
+    Failed(CommandActionError),
+    Canceled { candidate_id: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -542,6 +554,46 @@ impl CommandHubActionModel {
     }
 }
 
+pub fn dispatch_selected_action(
+    session: &mut CommandHubSession,
+    model: &mut CommandHubActionModel,
+) -> CommandHubDispatchOutcome {
+    dispatch_execute_outcome(session.execute_selected_candidate(), model)
+}
+
+pub fn dispatch_confirmed_action(
+    session: &mut CommandHubSession,
+    model: &mut CommandHubActionModel,
+) -> CommandHubDispatchOutcome {
+    dispatch_execute_outcome(session.confirm_selected_candidate(), model)
+}
+
+pub fn dispatch_cancel_action(session: &mut CommandHubSession) -> CommandHubDispatchOutcome {
+    match session.cancel_picker() {
+        PickerCancelOutcome::Noop => CommandHubDispatchOutcome::NoSelection,
+        PickerCancelOutcome::Closed { candidate_id }
+        | PickerCancelOutcome::BackToListing { candidate_id } => {
+            CommandHubDispatchOutcome::Canceled { candidate_id }
+        }
+    }
+}
+
+fn dispatch_execute_outcome(
+    picker_outcome: PickerExecuteOutcome,
+    model: &mut CommandHubActionModel,
+) -> CommandHubDispatchOutcome {
+    match picker_outcome {
+        PickerExecuteOutcome::NoSelection => CommandHubDispatchOutcome::NoSelection,
+        PickerExecuteOutcome::NeedsConfirmation { candidate_id } => {
+            CommandHubDispatchOutcome::NeedsConfirmation { candidate_id }
+        }
+        PickerExecuteOutcome::Executed(candidate) => match model.execute(&candidate.command) {
+            CommandActionOutcome::Executed(event) => CommandHubDispatchOutcome::Executed(event),
+            CommandActionOutcome::Failed(error) => CommandHubDispatchOutcome::Failed(error),
+        },
+    }
+}
+
 fn unsupported_command(command: &ParsedCommand) -> CommandActionOutcome {
     CommandActionOutcome::Failed(CommandActionError::UnsupportedCommand {
         domain: command.domain.clone(),
@@ -712,6 +764,7 @@ fn resolve_selected_open_target(value: &str) -> Result<SelectedOpenTarget, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command_hub::{CommandHubSession, PickerCandidate};
 
     fn action_command(domain: &str, verb: &str, target: &str) -> ParsedCommand {
         ParsedCommand {
@@ -756,6 +809,15 @@ mod tests {
                 is_active: true,
             }],
         )
+    }
+
+    fn destructive_workspace_candidate(target: &str) -> PickerCandidate {
+        PickerCandidate {
+            id: format!("workspace::{target}"),
+            label: format!("Workspace: {target}"),
+            command: action_command("workspace", "remove", target),
+            requires_confirmation: true,
+        }
     }
 
     #[test]
@@ -873,6 +935,44 @@ mod tests {
             model.execute(&action_command("selected", "open", "")),
             CommandActionOutcome::Failed(CommandActionError::InvalidTarget {
                 reason: "https:// 以外のURLスキームは開けません".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn dispatchは確認必須候補のキャンセルを通知する() {
+        let mut model = model();
+        let mut session = CommandHubSession::new();
+        let candidate = destructive_workspace_candidate("workspace-2");
+        session.apply_input("> Workspace: Remove", vec![candidate.clone()]);
+
+        assert_eq!(
+            dispatch_selected_action(&mut session, &mut model),
+            CommandHubDispatchOutcome::NeedsConfirmation {
+                candidate_id: candidate.id.clone(),
+            }
+        );
+        assert_eq!(
+            dispatch_cancel_action(&mut session),
+            CommandHubDispatchOutcome::Canceled {
+                candidate_id: Some(candidate.id),
+            }
+        );
+    }
+
+    #[test]
+    fn dispatchは確認後の失敗を通知する() {
+        let mut model = model();
+        let mut session = CommandHubSession::new();
+        let candidate = destructive_workspace_candidate("workspace-999");
+        session.apply_input("> Workspace: Remove", vec![candidate.clone()]);
+        let _ = dispatch_selected_action(&mut session, &mut model);
+
+        assert_eq!(
+            dispatch_confirmed_action(&mut session, &mut model),
+            CommandHubDispatchOutcome::Failed(CommandActionError::NotFound {
+                resource: "workspace",
+                target: "workspace-999".to_string(),
             })
         );
     }

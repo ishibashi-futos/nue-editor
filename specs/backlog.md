@@ -56,7 +56,7 @@
 - [x] CH-1: `Cmd+Shift+P` (Ctrl+Shift+P) でコマンドパレットを開くキーボード/クリック制御と、別要素クリック/ESC で閉じる仕組みを作る。
 - [x] CH-2: Action Mode (`>` 系コマンド) と Navigation Mode (`:` 系コマンド) の切り替え・ドメイン/構文の正規化を行い、Picker 連動で選択/実行/キャンセルを実現。
 - [x] CH-3: Workspace/Panes/Panel/Terminal/Selected 系コマンドに必要なリスト取得と実行 (Add/List/Remove/Split/Next/Prev/Close/Open など) を実装。
-- [ ] CH-4: 破壊的操作の確認フロー (ダイアログ or 2段階) を入れ、Command Hub からの実行時に失敗やキャンセルを伝える。
+- [x] CH-4: 破壊的操作の確認フロー (ダイアログ or 2段階) を入れ、Command Hub からの実行時に失敗やキャンセルを伝える。
 - [x] CH-5: `target` の Literal バイパス (`"..."` / `--literal`) と大文字小文字無視の受理をパーサでサポートし、内部での正規化結果をログ/実行に渡す。
 
 <!--
