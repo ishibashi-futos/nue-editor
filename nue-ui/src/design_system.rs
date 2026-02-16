@@ -138,6 +138,35 @@ pub enum GlassSurface {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusSurface {
+    CommandHub,
+    StructurePath,
+    WorkspaceRail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffSurface {
+    SmartGutter,
+    ApprovalUi,
+    Gutter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffState {
+    Pending,
+    Approved,
+    Neutral,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiffStyle {
+    pub surface: DiffSurface,
+    pub state: DiffState,
+    pub color: NamedColor,
+    pub emphasis_percent: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GlassStyleObject {
     pub surface: GlassSurface,
     pub background: NamedColor,
@@ -145,6 +174,29 @@ pub struct GlassStyleObject {
     pub backdrop_blur_px: u8,
     pub fine_grain_opacity_percent: u8,
     pub specular_edge: SpecularEdge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GlowSpec {
+    pub intensity_percent: u8,
+    pub radius_px: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransitionTiming {
+    pub enter_ms: u16,
+    pub exit_ms: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AgentStatusStyle {
+    pub surface: StatusSurface,
+    pub status: AgentStatus,
+    pub primary_color: NamedColor,
+    pub secondary_color: Option<NamedColor>,
+    pub animation: AnimationSpec,
+    pub transition: TransitionTiming,
+    pub glow: GlowSpec,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -287,6 +339,45 @@ impl DesignSystem {
     pub fn animation_for(&self, status: AgentStatus) -> AnimationSpec {
         self.animation_convention.for_status(status)
     }
+
+    pub fn status_style_for(
+        &self,
+        surface: StatusSurface,
+        status: AgentStatus,
+    ) -> AgentStatusStyle {
+        let palette = self.palette();
+        let animation = self.animation_for(status);
+        let primary_color = palette.status_color(status);
+        let secondary_color = match status {
+            AgentStatus::Idle => Some(palette.cloud_white),
+            _ => None,
+        };
+        let transition = transition_timing_for(status);
+        let glow = glow_spec_for(surface, status);
+
+        AgentStatusStyle {
+            surface,
+            status,
+            primary_color,
+            secondary_color,
+            animation,
+            transition,
+            glow,
+        }
+    }
+
+    pub fn diff_style_for(&self, surface: DiffSurface, state: DiffState) -> DiffStyle {
+        let palette = self.palette();
+        let color = diff_color_for_state(palette, state);
+        let emphasis_percent = diff_emphasis_for_surface(surface, state);
+
+        DiffStyle {
+            surface,
+            state,
+            color,
+            emphasis_percent,
+        }
+    }
 }
 
 fn neon_night_palette() -> ColorPalette {
@@ -400,6 +491,70 @@ fn glass_style_from_material(
         backdrop_blur_px,
         fine_grain_opacity_percent: material.fine_grain_opacity_percent,
         specular_edge: material.specular_edge,
+    }
+}
+
+fn transition_timing_for(status: AgentStatus) -> TransitionTiming {
+    match status {
+        AgentStatus::Busy => TransitionTiming {
+            enter_ms: 140,
+            exit_ms: 220,
+        },
+        AgentStatus::Waiting => TransitionTiming {
+            enter_ms: 180,
+            exit_ms: 260,
+        },
+        AgentStatus::Error => TransitionTiming {
+            enter_ms: 80,
+            exit_ms: 180,
+        },
+        AgentStatus::Idle => TransitionTiming {
+            enter_ms: 280,
+            exit_ms: 420,
+        },
+    }
+}
+
+fn glow_spec_for(surface: StatusSurface, status: AgentStatus) -> GlowSpec {
+    let (base_intensity, base_radius) = match status {
+        AgentStatus::Busy => (82_u16, 10_u8),
+        AgentStatus::Waiting => (56_u16, 8_u8),
+        AgentStatus::Error => (88_u16, 13_u8),
+        AgentStatus::Idle => (12_u16, 4_u8),
+    };
+    let (surface_boost, surface_radius_boost) = match surface {
+        StatusSurface::CommandHub => (8_u16, 2_u8),
+        StatusSurface::StructurePath => (4_u16, 1_u8),
+        StatusSurface::WorkspaceRail => (12_u16, 2_u8),
+    };
+    let intensity_with_surface = base_intensity + surface_boost;
+    let intensity = intensity_with_surface.min(100) as u8;
+
+    GlowSpec {
+        intensity_percent: intensity,
+        radius_px: base_radius + surface_radius_boost,
+    }
+}
+
+fn diff_color_for_state(palette: ColorPalette, state: DiffState) -> NamedColor {
+    match state {
+        DiffState::Pending => palette.solar_flare,
+        DiffState::Approved => palette.electric_lime,
+        DiffState::Neutral => palette.cloud_white,
+    }
+}
+
+fn diff_emphasis_for_surface(surface: DiffSurface, state: DiffState) -> u8 {
+    match (surface, state) {
+        (DiffSurface::SmartGutter, DiffState::Pending) => 80,
+        (DiffSurface::SmartGutter, DiffState::Approved) => 76,
+        (DiffSurface::SmartGutter, DiffState::Neutral) => 62,
+        (DiffSurface::ApprovalUi, DiffState::Pending) => 84,
+        (DiffSurface::ApprovalUi, DiffState::Approved) => 78,
+        (DiffSurface::ApprovalUi, DiffState::Neutral) => 64,
+        (DiffSurface::Gutter, DiffState::Pending) => 72,
+        (DiffSurface::Gutter, DiffState::Approved) => 68,
+        (DiffSurface::Gutter, DiffState::Neutral) => 58,
     }
 }
 
@@ -561,5 +716,120 @@ mod tests {
         assert_eq!(style.fine_grain_opacity_percent, 8);
         assert_eq!(style.specular_edge.width_tenths_px, 5);
         assert_eq!(style.background_alpha_percent, 64);
+    }
+
+    #[test]
+    fn agent_status_styleはcommand_hub向けbusy規約を返す() {
+        let design_system = DesignSystem::neon_night_glass();
+        let style = design_system.status_style_for(StatusSurface::CommandHub, AgentStatus::Busy);
+
+        assert_eq!(style.surface, StatusSurface::CommandHub);
+        assert_eq!(style.status, AgentStatus::Busy);
+        assert_eq!(style.primary_color.hex, "#00F5FF");
+        assert_eq!(style.secondary_color, None);
+        assert_eq!(style.animation.pattern, AnimationPattern::Pulse);
+        assert_eq!(
+            style.transition,
+            TransitionTiming {
+                enter_ms: 140,
+                exit_ms: 220,
+            }
+        );
+        assert_eq!(
+            style.glow,
+            GlowSpec {
+                intensity_percent: 90,
+                radius_px: 12,
+            }
+        );
+    }
+
+    #[test]
+    fn agent_status_styleはstructure_path向けidleデュアルトーンを返す() {
+        let design_system = DesignSystem::neon_night_glass();
+        let style = design_system.status_style_for(StatusSurface::StructurePath, AgentStatus::Idle);
+
+        assert_eq!(style.surface, StatusSurface::StructurePath);
+        assert_eq!(style.status, AgentStatus::Idle);
+        assert_eq!(style.primary_color.hex, "#949DB1");
+        assert_eq!(
+            style.secondary_color.map(|color| color.hex),
+            Some("#F8F9FA")
+        );
+        assert_eq!(style.animation.pattern, AnimationPattern::Fade);
+        assert_eq!(
+            style.transition,
+            TransitionTiming {
+                enter_ms: 280,
+                exit_ms: 420,
+            }
+        );
+        assert_eq!(
+            style.glow,
+            GlowSpec {
+                intensity_percent: 16,
+                radius_px: 5,
+            }
+        );
+    }
+
+    #[test]
+    fn agent_status_styleはworkspace_rail向けerrorグローを強める() {
+        let design_system = DesignSystem::neon_night_glass();
+        let style =
+            design_system.status_style_for(StatusSurface::WorkspaceRail, AgentStatus::Error);
+
+        assert_eq!(style.surface, StatusSurface::WorkspaceRail);
+        assert_eq!(style.status, AgentStatus::Error);
+        assert_eq!(style.primary_color.hex, "#FF006E");
+        assert_eq!(style.secondary_color, None);
+        assert_eq!(style.animation.pattern, AnimationPattern::Flash);
+        assert_eq!(
+            style.transition,
+            TransitionTiming {
+                enter_ms: 80,
+                exit_ms: 180,
+            }
+        );
+        assert_eq!(
+            style.glow,
+            GlowSpec {
+                intensity_percent: 100,
+                radius_px: 15,
+            }
+        );
+    }
+
+    #[test]
+    fn diff_styleはsmart_gutter向け未承認スタイルを返す() {
+        let design_system = DesignSystem::neon_night_glass();
+        let style = design_system.diff_style_for(DiffSurface::SmartGutter, DiffState::Pending);
+
+        assert_eq!(style.surface, DiffSurface::SmartGutter);
+        assert_eq!(style.state, DiffState::Pending);
+        assert_eq!(style.color.hex, "#FFF200");
+        assert_eq!(style.emphasis_percent, 80);
+    }
+
+    #[test]
+    fn diff_styleはapproval_ui向け承認済みスタイルを返す() {
+        let design_system = DesignSystem::neon_night_glass();
+        let style = design_system.diff_style_for(DiffSurface::ApprovalUi, DiffState::Approved);
+
+        assert_eq!(style.surface, DiffSurface::ApprovalUi);
+        assert_eq!(style.state, DiffState::Approved);
+        assert_eq!(style.color.hex, "#32FF7E");
+        assert_eq!(style.emphasis_percent, 78);
+    }
+
+    #[test]
+    fn diff_styleはgutter向け中立スタイルを返す() {
+        let design_system = DesignSystem::neon_night_glass();
+        let style = design_system.diff_style_for(DiffSurface::Gutter, DiffState::Neutral);
+
+        assert_eq!(style.surface, DiffSurface::Gutter);
+        assert_eq!(style.state, DiffState::Neutral);
+        assert_eq!(style.color.hex, "#F8F9FA");
+        assert_eq!(style.emphasis_percent, 58);
     }
 }
