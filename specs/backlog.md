@@ -5,7 +5,7 @@
 - [ ] B-2: ペイン・タブ・Command Hub・ターミナルなどを横断するフォーカスと `focus_id` の統一的な管理レイヤーを用意し、ステータス同期処理とイベントキューを通じて 50ms 以内反映を目指せるようにする。
 - [ ] B-3: `Command Hub` の構文解析器と Picker UI の基礎 (Domain/Verb/Target の正規化、一覧表示/キャンセルパターン、確認フロー) を用意し、Action/Navigation 両モードで共通利用できるようにする。
 - [ ] B-4: デザイントークン (Neon-Night-Glass カラー/Glass マテリアル) を `nue-ui` で定義し、カラーパレット・フォントコンテキスト・アニメーション規約を `DesignSystem` コンポーネントが参照できるようにする。
-- [ ] B-5: Terminal の `run_command` キュー/ステータス/通知を管理する `TerminalSession` モデルと、UI 側が `Queued/Running/Completed/Failed` を視覚化するためのイベント API を整備する。
+- [x] B-5: Terminal の `run_command` キュー/ステータス/通知を管理する `TerminalSession` モデルと、UI 側が `Queued/Running/Completed/Failed` を視覚化するためのイベント API を整備する。
 - [ ] B-6: Markdown/Editor の基本バッファ・UndoRedo・保存フロー・ショートカット登録を担う `EditorCore` モジュール (ファイル開く、カーソル保持、`Cmd/Ctrl + S` 等) を定義し、上位機能での Hook を取り付けやすくする。
 
 ## 1 Workspaces
