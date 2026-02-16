@@ -4,3 +4,4 @@ pub mod editor_core;
 pub mod focus_layer;
 pub mod terminal_session;
 pub mod workspace_rail;
+pub mod workspace_registry;
