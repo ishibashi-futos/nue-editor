@@ -130,10 +130,10 @@ impl SmartGutterService {
         });
     }
 
-    pub fn on_buffer_updated(&mut self, content: &str) {
-        let Some(state) = self.state.as_mut() else {
-            return;
-        };
+    pub fn on_buffer_updated(&mut self, content: &str) -> Option<SmartGutterServiceEvent> {
+        let state = self.state.as_mut()?;
+        let previous_indicator_count = state.indicators.len();
+        let previous_active_focus_id = state.active_focus_id.clone();
         state.line_count = count_lines(content);
         state
             .indicators
@@ -145,6 +145,19 @@ impl SmartGutterService {
         {
             state.active_focus_id = None;
         }
+
+        if previous_indicator_count != state.indicators.len()
+            || previous_active_focus_id != state.active_focus_id
+        {
+            return Some(SmartGutterServiceEvent::IndicatorsUpdated(
+                SmartGutterIndicatorsUpdatedEvent {
+                    file_path: state.file_path.clone(),
+                    indicator_count: state.indicators.len(),
+                },
+            ));
+        }
+
+        None
     }
 
     pub fn replace_indicators(

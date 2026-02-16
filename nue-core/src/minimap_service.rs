@@ -111,10 +111,10 @@ impl MinimapService {
         });
     }
 
-    pub fn on_buffer_updated(&mut self, content: &str) {
-        let Some(state) = self.state.as_mut() else {
-            return;
-        };
+    pub fn on_buffer_updated(&mut self, content: &str) -> Option<MinimapServiceEvent> {
+        let state = self.state.as_mut()?;
+        let previous_overlay_count = state.overlays.len();
+        let previous_active_focus_id = state.active_focus_id.clone();
         state.line_count = count_lines(content);
         state
             .overlays
@@ -126,6 +126,19 @@ impl MinimapService {
         {
             state.active_focus_id = None;
         }
+
+        if previous_overlay_count != state.overlays.len()
+            || previous_active_focus_id != state.active_focus_id
+        {
+            return Some(MinimapServiceEvent::OverlaysUpdated(
+                MinimapOverlaysUpdatedEvent {
+                    file_path: state.file_path.clone(),
+                    overlay_count: state.overlays.len(),
+                },
+            ));
+        }
+
+        None
     }
 
     pub fn replace_overlays(
@@ -167,6 +180,12 @@ impl MinimapService {
                 targets: vec![FocusSyncTarget::CommandHub, FocusSyncTarget::StructurePath],
             },
         ))
+    }
+
+    pub fn has_focus(&self, focus_id: &str) -> bool {
+        self.state
+            .as_ref()
+            .is_some_and(|state| state.has_focus(focus_id))
     }
 
     pub fn snapshot(&self) -> Option<MinimapSnapshot> {

@@ -414,10 +414,7 @@ impl EditorCore {
         let cursor_char = buffer.cursor_char;
         let file_path = buffer.file_path.clone();
         let current_content = buffer.content.clone();
-        self.minimap_service
-            .on_buffer_updated(current_content.as_str());
-        self.smart_gutter_service
-            .on_buffer_updated(current_content.as_str());
+        self.sync_services_after_buffer_update(current_content.as_str());
         self.push_buffer_edited_event(file_path.clone(), revision, cursor_char, is_dirty);
         self.push_markdown_observation_events(
             &file_path,
@@ -451,10 +448,7 @@ impl EditorCore {
         let cursor_char = buffer.cursor_char;
         let file_path = buffer.file_path.clone();
         let current_content = buffer.content.clone();
-        self.minimap_service
-            .on_buffer_updated(current_content.as_str());
-        self.smart_gutter_service
-            .on_buffer_updated(current_content.as_str());
+        self.sync_services_after_buffer_update(current_content.as_str());
         self.push_buffer_edited_event(file_path.clone(), revision, cursor_char, is_dirty);
         self.push_markdown_observation_events(
             &file_path,
@@ -488,10 +482,7 @@ impl EditorCore {
         let cursor_char = buffer.cursor_char;
         let file_path = buffer.file_path.clone();
         let current_content = buffer.content.clone();
-        self.minimap_service
-            .on_buffer_updated(current_content.as_str());
-        self.smart_gutter_service
-            .on_buffer_updated(current_content.as_str());
+        self.sync_services_after_buffer_update(current_content.as_str());
         self.push_buffer_edited_event(file_path.clone(), revision, cursor_char, is_dirty);
         self.push_markdown_observation_events(
             &file_path,
@@ -655,10 +646,12 @@ impl EditorCore {
         if self.active_buffer.is_none() {
             return SyncMinimapFocusOutcome::NoBuffer;
         }
-        let Some(event) = self.minimap_service.sync_focus_id(focus_id) else {
+        if !self.minimap_service.has_focus(focus_id) {
             return SyncMinimapFocusOutcome::FocusNotFound;
-        };
-        self.push_minimap_service_event(event);
+        }
+        if let Some(event) = self.minimap_service.sync_focus_id(focus_id) {
+            self.push_minimap_service_event(event);
+        }
 
         SyncMinimapFocusOutcome::Synced {
             focus_id: focus_id.to_string(),
@@ -851,6 +844,15 @@ impl EditorCore {
             MarkdownServiceEvent::PreviewSynced(event) => self
                 .events
                 .push_back(EditorCoreEvent::MarkdownPreviewSynced(event)),
+        }
+    }
+
+    fn sync_services_after_buffer_update(&mut self, current_content: &str) {
+        if let Some(event) = self.minimap_service.on_buffer_updated(current_content) {
+            self.push_minimap_service_event(event);
+        }
+        if let Some(event) = self.smart_gutter_service.on_buffer_updated(current_content) {
+            self.push_smart_gutter_service_event(event);
         }
     }
 
@@ -1553,6 +1555,82 @@ mod tests {
                     ],
                 }
             )]
+        );
+    }
+
+    #[test]
+    fn minimapの同一focus_id再同期はfocus_not_foundにしない() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "one\ntwo\nthree\nfour");
+        core.drain_events();
+        core.update_minimap_overlays(vec![MinimapOverlay::ai_diff(3, "focus-ai-1")]);
+        core.drain_events();
+
+        assert_eq!(
+            core.sync_minimap_focus_id("focus-ai-1"),
+            SyncMinimapFocusOutcome::Synced {
+                focus_id: "focus-ai-1".to_string(),
+            }
+        );
+        core.drain_events();
+
+        assert_eq!(
+            core.sync_minimap_focus_id("focus-ai-1"),
+            SyncMinimapFocusOutcome::Synced {
+                focus_id: "focus-ai-1".to_string(),
+            }
+        );
+        assert!(core.drain_events().is_empty());
+    }
+
+    #[test]
+    fn undoでminimapとsmart_gutterの更新イベントを再発火する() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.txt", "one\ntwo\nthree");
+        core.drain_events();
+        core.set_cursor(13);
+        core.drain_events();
+        core.insert_text("\nfour");
+        core.update_minimap_overlays(vec![MinimapOverlay::ai_diff(4, "focus-ai-1")]);
+        core.update_smart_gutter_indicators(vec![
+            crate::smart_gutter_service::SmartGutterIndicator::ai_diff(
+                4,
+                "focus-ai-1",
+                "approval-1",
+            ),
+        ]);
+        core.sync_minimap_focus_id("focus-ai-1");
+        core.sync_smart_gutter_focus_id("focus-ai-1");
+        core.drain_events();
+
+        assert_eq!(
+            core.undo(),
+            HistoryOutcome::Applied {
+                revision: 2,
+                cursor_char: 13,
+                is_dirty: false,
+            }
+        );
+        assert_eq!(
+            core.drain_events(),
+            vec![
+                EditorCoreEvent::MinimapOverlaysUpdated(MinimapOverlaysUpdatedEvent {
+                    file_path: PathBuf::from("docs/readme.txt"),
+                    overlay_count: 0,
+                }),
+                EditorCoreEvent::SmartGutterIndicatorsUpdated(
+                    crate::smart_gutter_service::SmartGutterIndicatorsUpdatedEvent {
+                        file_path: PathBuf::from("docs/readme.txt"),
+                        indicator_count: 0,
+                    },
+                ),
+                EditorCoreEvent::BufferEdited(BufferEditedEvent {
+                    file_path: PathBuf::from("docs/readme.txt"),
+                    revision: 2,
+                    cursor_char: 13,
+                    is_dirty: false,
+                }),
+            ]
         );
     }
 

@@ -116,10 +116,24 @@ fn count_changed_lines(previous_content: &str, current_content: &str) -> usize {
 }
 
 fn count_markdown_headings(content: &str) -> usize {
-    content
-        .lines()
-        .filter(|line| line.trim_start().starts_with('#'))
-        .count()
+    let mut heading_count = 0;
+    let mut in_fenced_code_block = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_fenced_code_block = !in_fenced_code_block;
+            continue;
+        }
+        if in_fenced_code_block {
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            heading_count += 1;
+        }
+    }
+
+    heading_count
 }
 
 #[cfg(test)]
@@ -186,6 +200,28 @@ mod tests {
             service
                 .observe_change(Path::new("docs/readme.txt"), 1, "before", "after")
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn フェンスコードブロック内のシャープは見出しとして数えない() {
+        let service = MarkdownService::new();
+
+        let events = service.observe_change(
+            Path::new("docs/readme.md"),
+            2,
+            "# Title",
+            "# Title\n```rust\n# not heading\n```\n## Section",
+        );
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events[1],
+            MarkdownServiceEvent::PreviewSynced(MarkdownPreviewSyncedEvent {
+                file_path: PathBuf::from("docs/readme.md"),
+                revision: 2,
+                heading_count: 2,
+            })
         );
     }
 }
