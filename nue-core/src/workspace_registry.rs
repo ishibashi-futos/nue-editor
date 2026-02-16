@@ -1,4 +1,7 @@
-use crate::workspace_rail::{WorkspaceMetadata, WorkspaceRailModel};
+use crate::workspace_rail::{
+    TransitionOutcome, WorkspaceMetadata, WorkspaceRailModel, WorkspaceRailState,
+};
+use std::collections::VecDeque;
 use std::fs;
 use std::path::Path;
 
@@ -54,11 +57,26 @@ pub enum ExcludeWorkspaceOutcome {
     WorkspaceNotFound,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceStatusUpdatedEvent {
+    pub workspace_id: String,
+    pub state: WorkspaceRailState,
+    pub revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkspaceStatusUpdateOutcome {
+    Updated(WorkspaceStatusUpdatedEvent),
+    Noop,
+    WorkspaceNotFound,
+}
+
 #[derive(Debug, Default)]
 pub struct WorkspaceRegistry {
     workspaces: Vec<WorkspaceRailModel>,
     dialog: WorkspaceRegistrationDialog,
     context_menu: WorkspaceContextMenu,
+    status_events: VecDeque<WorkspaceStatusUpdatedEvent>,
 }
 
 impl WorkspaceRegistry {
@@ -76,6 +94,36 @@ impl WorkspaceRegistry {
 
     pub fn context_menu(&self) -> &WorkspaceContextMenu {
         &self.context_menu
+    }
+
+    pub fn update_workspace_status_from_server(
+        &mut self,
+        workspace_id: &str,
+        next_state: WorkspaceRailState,
+    ) -> WorkspaceStatusUpdateOutcome {
+        let Some(index) = self.workspace_index_by_id(workspace_id) else {
+            return WorkspaceStatusUpdateOutcome::WorkspaceNotFound;
+        };
+        let workspace = self
+            .workspaces
+            .get_mut(index)
+            .expect("workspace_index_by_idで存在確認済み");
+        match workspace.apply_core_state(next_state) {
+            TransitionOutcome::Noop => WorkspaceStatusUpdateOutcome::Noop,
+            TransitionOutcome::Changed(_) => {
+                let event = WorkspaceStatusUpdatedEvent {
+                    workspace_id: workspace.metadata().workspace_id.clone(),
+                    state: workspace.snapshot().state,
+                    revision: workspace.snapshot().revision,
+                };
+                self.status_events.push_back(event.clone());
+                WorkspaceStatusUpdateOutcome::Updated(event)
+            }
+        }
+    }
+
+    pub fn drain_status_events(&mut self) -> Vec<WorkspaceStatusUpdatedEvent> {
+        self.status_events.drain(..).collect()
     }
 
     pub fn open_add_dialog(&mut self) {
@@ -556,5 +604,71 @@ mod tests {
             registry.submit_add(),
             AddWorkspaceOutcome::Added { workspace_id } if workspace_id == "workspace-3"
         ));
+    }
+
+    #[test]
+    fn 基盤サーバ状態更新でworkspace_railのライブ更新イベントを取り出せる() {
+        let first = TestDir::new("workspace-first");
+        let mut registry = WorkspaceRegistry::new();
+        registry.open_add_dialog();
+        registry.update_dialog_path(first.path_str());
+        assert!(matches!(
+            registry.submit_add(),
+            AddWorkspaceOutcome::Added { workspace_id } if workspace_id == "workspace-1"
+        ));
+
+        let outcome =
+            registry.update_workspace_status_from_server("workspace-1", WorkspaceRailState::Busy);
+
+        assert_eq!(
+            outcome,
+            WorkspaceStatusUpdateOutcome::Updated(WorkspaceStatusUpdatedEvent {
+                workspace_id: "workspace-1".to_string(),
+                state: WorkspaceRailState::Busy,
+                revision: 1,
+            })
+        );
+        assert_eq!(
+            registry.workspaces()[0].snapshot().state,
+            WorkspaceRailState::Busy
+        );
+        assert_eq!(
+            registry.drain_status_events(),
+            vec![WorkspaceStatusUpdatedEvent {
+                workspace_id: "workspace-1".to_string(),
+                state: WorkspaceRailState::Busy,
+                revision: 1,
+            }]
+        );
+        assert!(registry.drain_status_events().is_empty());
+    }
+
+    #[test]
+    fn 基盤サーバ状態更新で同一状態の場合はnoopになる() {
+        let first = TestDir::new("workspace-first");
+        let mut registry = WorkspaceRegistry::new();
+        registry.open_add_dialog();
+        registry.update_dialog_path(first.path_str());
+        assert!(matches!(
+            registry.submit_add(),
+            AddWorkspaceOutcome::Added { workspace_id } if workspace_id == "workspace-1"
+        ));
+
+        let outcome =
+            registry.update_workspace_status_from_server("workspace-1", WorkspaceRailState::Idle);
+
+        assert_eq!(outcome, WorkspaceStatusUpdateOutcome::Noop);
+        assert!(registry.drain_status_events().is_empty());
+    }
+
+    #[test]
+    fn 基盤サーバ状態更新は未登録workspaceを拒否する() {
+        let mut registry = WorkspaceRegistry::new();
+
+        let outcome = registry
+            .update_workspace_status_from_server("workspace-unknown", WorkspaceRailState::Error);
+
+        assert_eq!(outcome, WorkspaceStatusUpdateOutcome::WorkspaceNotFound);
+        assert!(registry.drain_status_events().is_empty());
     }
 }

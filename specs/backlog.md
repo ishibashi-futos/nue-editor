@@ -11,7 +11,7 @@
 ## 1 Workspaces
 - [x] WS-1: `+` ボタンからワークスペース登録ダイアログを開く UI を実装し、パス入力→検証→追加のフローを `WorkspaceRail` に反映できるようにする。
 - [x] WS-2: `WorkspaceRail` 上のワークスペース項目を右クリックすると除外コンテキストメニューが出る仕組みを構築し、除外後に表示更新を行う。
-- [ ] WS-3: `WorkspaceRail` で Busy/Waiting/Error/Idle ステータスを色+アニメーションで表現し、基盤サーバ状態と連携してライブ更新できるようにする。
+- [x] WS-3: `WorkspaceRail` で Busy/Waiting/Error/Idle ステータスを色+アニメーションで表現し、基盤サーバ状態と連携してライブ更新できるようにする。
 
 ## 2 Design System
 - [x] DS-1: Neon-Night-Glass カラーパレットと `FontContext` (JetBrainsMono の Regular/Bold/Italic 埋め込み) を `nue-ui` で登録する。

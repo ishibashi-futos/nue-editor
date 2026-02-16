@@ -1,3 +1,5 @@
+use nue_core::workspace_rail::WorkspaceRailState;
+
 pub const FONT_KEY_TEXT: &str = "nue-font::text";
 pub const FONT_KEY_EMPHASIS: &str = "nue-font::emphasis";
 pub const FONT_KEY_META: &str = "nue-font::meta";
@@ -452,6 +454,11 @@ impl DesignSystem {
         }
     }
 
+    pub fn workspace_rail_status_style_for(&self, state: WorkspaceRailState) -> AgentStatusStyle {
+        let status = agent_status_from_workspace_rail_state(state);
+        self.status_style_for(StatusSurface::WorkspaceRail, status)
+    }
+
     pub fn diff_style_for(&self, surface: DiffSurface, state: DiffState) -> DiffStyle {
         let palette = self.palette();
         let color = diff_color_for_state(palette, state);
@@ -475,6 +482,15 @@ fn focus_matches(active_focus_id: Option<&str>, layer_focus_id: Option<&str>) ->
         (active_focus_id, layer_focus_id),
         (Some(active), Some(layer)) if active == layer
     ) || matches!((active_focus_id, layer_focus_id), (None, None))
+}
+
+fn agent_status_from_workspace_rail_state(state: WorkspaceRailState) -> AgentStatus {
+    match state {
+        WorkspaceRailState::Busy => AgentStatus::Busy,
+        WorkspaceRailState::Waiting => AgentStatus::Waiting,
+        WorkspaceRailState::Error => AgentStatus::Error,
+        WorkspaceRailState::Idle => AgentStatus::Idle,
+    }
 }
 
 fn neon_night_palette() -> ColorPalette {
@@ -895,6 +911,30 @@ mod tests {
                 radius_px: 15,
             }
         );
+    }
+
+    #[test]
+    fn workspace_rail_stateからstatus_styleを解決できる() {
+        let design_system = DesignSystem::neon_night_glass();
+
+        let busy = design_system.workspace_rail_status_style_for(WorkspaceRailState::Busy);
+        let waiting = design_system.workspace_rail_status_style_for(WorkspaceRailState::Waiting);
+        let error = design_system.workspace_rail_status_style_for(WorkspaceRailState::Error);
+        let idle = design_system.workspace_rail_status_style_for(WorkspaceRailState::Idle);
+
+        assert_eq!(busy.surface, StatusSurface::WorkspaceRail);
+        assert_eq!(busy.status, AgentStatus::Busy);
+        assert_eq!(busy.primary_color.hex, "#00F5FF");
+        assert_eq!(busy.animation.pattern, AnimationPattern::Pulse);
+        assert_eq!(waiting.status, AgentStatus::Waiting);
+        assert_eq!(waiting.primary_color.hex, "#FFF200");
+        assert_eq!(waiting.animation.pattern, AnimationPattern::Blink);
+        assert_eq!(error.status, AgentStatus::Error);
+        assert_eq!(error.primary_color.hex, "#FF006E");
+        assert_eq!(error.animation.pattern, AnimationPattern::Flash);
+        assert_eq!(idle.status, AgentStatus::Idle);
+        assert_eq!(idle.primary_color.hex, "#949DB1");
+        assert_eq!(idle.animation.pattern, AnimationPattern::Fade);
     }
 
     #[test]
