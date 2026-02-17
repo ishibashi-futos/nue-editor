@@ -79,6 +79,7 @@ EOF
 run_codex_exec "workspace-write" "never" "$REVIEW_MODEL" "$REVIEW_MODEL_REASONING_EFFORT" "$REVIEW_EXEC_PROMPT"
 echo "✅ reviewed."
 
+REVIEW_DOC="./review.md"
 # review.md 未生成のまま post-review を実行しない。
 if [ ! -f "$REVIEW_DOC" ]; then
   echo "❌ review file not found: $REVIEW_DOC" >&2
@@ -86,7 +87,6 @@ if [ ! -f "$REVIEW_DOC" ]; then
 fi
 
 echo "🤖 post-review fixing ... "
-REVIEW_DOC="./review.md"
 POST_FIXING_MODEL="gpt-5.3-codex"
 POST_FIXING_MODEL_REASONING_EFFORT="medium"
 POST_FIXING_PROMPT="Development Workflowに従い、次のレビュー指摘に対応してください\n## レビュー指摘事項"
