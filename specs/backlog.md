@@ -28,7 +28,7 @@
 - [x] ED-5: Markdown リッチ機能（構文強調・リスト補完・ペア補完・リンク開く・プレビュー同期など）の各サブ機能を `MarkdownService` に分割し、差分検知/同期を観測するイベントを追加する。
 - [x] ED-6: `Minimap` コンポーネントと `Shadow Buffer` オーバーレイの基礎を作成し、検索結果や AI/Git 差分をライン/色で描画できるようにする。`focus_id` 更新で `Command Hub`/`Structure Path` に同期するイベントを出す。
 - [x] ED-7: `Smart Gutter` の差分タイプ判別 (git/AI)・色アニメーション・クリックジャンプ・Approval Request 連携を分解し、`Structure Path`/`Command Hub` の状態と連動するイベントを定義する。
-- [ ] ED-8: ビュー側で Markdown Preview を右クリックメニューに統合し、プレビューとのスクロール同期や見出しクリックで本文にジャンプする機能を追加する。
+- [x] ED-8: ビュー側で Markdown Preview を右クリックメニューに統合し、プレビューとのスクロール同期や見出しクリックで本文にジャンプする機能を追加する。
 - [ ] ED-9: ペインの再配置・Split/Close/Open to Side/Move Tab 機能などを制御する `PaneManager` を実装し、ペイン状態と Command Hub の設定と連携させる。
 - [ ] ED-10: タブ操作（ドラッグ並び替え、ピン止め、Close Others/Close to Right/Reopen Closed Tab）の各操作フローを `TabManager` でモデル化し、UI/キーボード/Command Hub いずれからも呼べるようにする。
 - [x] ED-11: ペインごとの「直前ファイルへ戻る」履歴スタックを `PaneHistory` で保持する仕組みを作成する。
@@ -69,7 +69,7 @@
 
 ## ToDo
 
-- [ ] `nue-ui` の Legacy Explorer を実装し、`LegacyFileTree` 購読によるツリー描画と `LegacyWorkspaceEditor::select_file` へのファイル選択導線を接続する。
+- [x] `nue-ui` の Legacy Explorer を実装し、`LegacyFileTree` 購読によるツリー描画と `LegacyWorkspaceEditor::select_file` へのファイル選択導線を接続する。
 - [ ] `nue-ui` の Editor 入力導線を実装し、ショートカット入力を `EditorCore::dispatch_shortcut`、右クリック操作を `open_context_menu` / `execute_context_menu_item`、Markdown 操作を `execute_markdown_feature` へ接続する。
 - [ ] `EditorCoreEvent::Minimap*` / `EditorCoreEvent::SmartGutter*` を `nue-ui` で購読し、Minimap・Smart Gutter の描画、クリックジャンプ、Approval Request、Command Hub/Structure Path 同期を反映する。
 - [ ] `WorkspaceRail` 実コンポーネントを `WorkspaceRegistry` に接続し、`drain_status_events` のライブ更新、右クリック除外、`WorkspacePathValidation` の文言マッピングを実装する。
@@ -77,5 +77,5 @@
 - [ ] `CommandHubSession` と `CommandHubActionModel` を UI 入力と接続し、Action/Navigation 切替、Picker 実行、破壊的操作確認フローを `nue-ui` 側で完結させる。
 - [ ] `CommandHubDispatchOutcome`（`Closed` / `BackToListing` / `Failed` / `Canceled` 相当）を UI 状態遷移と通知表示へ明示マッピングする。
 - [ ] `CommandHubActionModel` の実行結果を Workspace/Pane/Terminal の実体状態更新へ接続し、モデル内完結から上位レイヤー連携へ置き換える。
-- [ ] `EditorCore` 公開型の `PathBuf` を UI 表示へ変換する文字列化ポリシー（非UTF-8時の扱い含む）を仕様化し、上位層で統一適用する。
+- [x] `EditorCore` 公開型の `PathBuf` を UI 表示へ変換する文字列化ポリシー（非UTF-8時の扱い含む）を仕様化し、上位層で統一適用する。
 - [ ] `cargo clippy --all-targets -- -D warnings` で検出される既存警告（`pane_history` / `search_navigator` / `structure_path` 付近）を解消し、`scripts/sanity.sh` 完了条件を満たす。
