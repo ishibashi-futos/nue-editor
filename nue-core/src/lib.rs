@@ -1,13 +1,16 @@
 pub mod command_hub;
 pub mod command_hub_actions;
+pub mod commit_log;
 pub mod editor_core;
 pub mod focus_layer;
+pub mod git_status;
 pub mod legacy_file_tree;
 pub mod legacy_workspace_editor;
 pub mod markdown_service;
 pub mod minimap_service;
 pub mod pane_history;
 pub mod pane_manager;
+pub mod repository_service;
 pub mod search_navigator;
 pub mod search_service;
 pub mod session_state;

@@ -1,4 +1,5 @@
 use crate::{
+    pane_history::PaneHistorySnapshot,
     pane_manager::{PaneLayoutRestoreError, PaneLayoutSnapshot, PaneManager},
     tab_manager::{DEFAULT_HISTORY_CAPACITY, TabManager, TabSnapshot},
 };
@@ -10,6 +11,7 @@ pub struct SessionState {
     pub panes: Vec<PaneLayoutSnapshot>,
     pub tabs: Vec<TabSnapshot>,
     pub active_pane_id: Option<String>,
+    pub pane_history: Vec<PaneHistorySnapshot>,
 }
 
 /// 復元処理が失敗した理由。
@@ -25,6 +27,7 @@ impl SessionState {
             panes: pane_manager.layout_snapshot(),
             tabs: tab_manager.tabs(),
             active_pane_id: pane_manager.active_pane_id().map(|id| id.to_string()),
+            pane_history: pane_manager.history_snapshot(),
         }
     }
 
@@ -38,6 +41,7 @@ impl SessionState {
             .restore_layout(self.panes.clone())
             .map_err(SessionRestoreError::PaneLayout)?;
         *tab_manager = TabManager::from_snapshots(self.tabs.clone(), DEFAULT_HISTORY_CAPACITY);
+        pane_manager.restore_history(self.pane_history.clone());
         Ok(())
     }
 }
@@ -66,6 +70,20 @@ mod tests {
     #[test]
     fn capture_and_restore_preserves_state() {
         let mut pane_manager = build_two_pane_manager();
+        let pane_id = pane_manager.panes()[0].id.clone();
+        let initial_tab_id = pane_manager
+            .layout_snapshot()
+            .into_iter()
+            .find(|pane| pane.id == pane_id)
+            .and_then(|pane| pane.tabs.first().map(|tab| tab.id.clone()))
+            .expect("initial tab exists");
+        let extra_tab_id = pane_manager
+            .add_tab_to_pane(&pane_id, "extra.rs")
+            .expect("tab added");
+        pane_manager
+            .activate_tab(&pane_id, &initial_tab_id)
+            .unwrap();
+        pane_manager.activate_tab(&pane_id, &extra_tab_id).unwrap();
         pane_manager
             .split_active(PaneSplitDirection::Right)
             .expect("split should succeed");
@@ -90,5 +108,37 @@ mod tests {
             restored_pane.active_pane_id(),
             pane_manager.active_pane_id()
         );
+        assert_eq!(
+            restored_pane.back_to_previous_tab(&pane_id).unwrap(),
+            initial_tab_id
+        );
+    }
+
+    #[test]
+    fn back_to_previous_tab_tracks_history() {
+        let mut manager = build_two_pane_manager();
+        let pane_id = manager.panes()[0].id.clone();
+        let first_tab_id = manager
+            .layout_snapshot()
+            .into_iter()
+            .find(|pane| pane.id == pane_id)
+            .and_then(|pane| pane.tabs.first().map(|tab| tab.id.clone()))
+            .expect("initial tab exists");
+        let new_tab_id = manager
+            .add_tab_to_pane(&pane_id, "extra.rs")
+            .expect("tab added");
+        manager.activate_tab(&pane_id, &first_tab_id).unwrap();
+        manager.activate_tab(&pane_id, &new_tab_id).unwrap();
+
+        let previous = manager.back_to_previous_tab(&pane_id).unwrap();
+
+        assert_eq!(previous, first_tab_id);
+        let pane_title = manager
+            .panes()
+            .into_iter()
+            .find(|pane| pane.id == pane_id)
+            .unwrap()
+            .title;
+        assert_eq!(pane_title, "main.rs");
     }
 }

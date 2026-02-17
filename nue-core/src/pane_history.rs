@@ -1,13 +1,14 @@
 //! ペインごとの直前ファイル履歴を扱うモジュール。
 //! `PaneHistory` はペイン単位で訪問履歴を保持し、戻る操作やスナップショットに利用可能。
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
 const DEFAULT_HISTORY_CAPACITY: usize = 32;
 
 /// ペイン履歴のスナップショット。
 /// セッション復元や UI 表示のために履歴内容を外部に渡す。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaneHistorySnapshot {
     pub pane_id: String,
     pub stack: Vec<String>,
@@ -24,7 +25,7 @@ impl PaneHistorySnapshot {
 
 /// 各ペインの直前タブ履歴を保持する構造体。
 /// 同一タブの連続記録を防ぎつつ、履歴長を制限することでメモリを抑える。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneHistory {
     stacks: HashMap<String, VecDeque<String>>,
     capacity: usize,

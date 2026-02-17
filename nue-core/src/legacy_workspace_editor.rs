@@ -2,7 +2,8 @@ use crate::editor_core::{
     CursorMoveOutcome, EditOutcome, EditorBufferSnapshot, EditorCore, HistoryOutcome,
     MarkSavedOutcome, SaveOutcome, SaveTrigger,
 };
-use crate::legacy_file_tree::{LegacyFileTree, LegacyFileTreeBuildError};
+use crate::git_status::collect_git_statuses;
+use crate::legacy_file_tree::{LegacyFileTree, LegacyFileTreeBuildError, LegacyFileTreeNodeStatus};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -55,6 +56,12 @@ impl LegacyWorkspaceEditor {
 
     pub fn file_tree(&self) -> &LegacyFileTree {
         &self.file_tree
+    }
+
+    /// Git ステータスを付加したフラット化ノードを取得する。
+    pub fn file_tree_with_git_statuses(&self) -> Vec<LegacyFileTreeNodeStatus> {
+        let statuses = collect_git_statuses(self.workspace_root.as_path());
+        self.file_tree.flatten_with_git_statuses(&statuses)
     }
 
     pub fn select_file(&mut self, absolute_path: &str) -> SelectFileOutcome {
@@ -192,8 +199,12 @@ fn create_unique_temp_path(
 mod tests {
     use super::*;
     use crate::editor_core::{CursorMoveOutcome, EditOutcome, HistoryOutcome};
+    use crate::git_status::GitFileStatus;
+    use crate::legacy_file_tree::LegacyFileTreeNodeKind;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
+    use std::path::Path;
+    use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -339,6 +350,51 @@ mod tests {
         );
     }
 
+    #[test]
+    fn ファイルツリーは_gitステータス付きで取得できる() {
+        let fixture = WorkspaceFixture::new("legacy-workspace-editor-git-status");
+        let workspace_path = fixture.path();
+
+        run_git(workspace_path, &["init"]);
+        run_git(workspace_path, &["config", "user.email", "nue@example.com"]);
+        run_git(workspace_path, &["config", "user.name", "Nue Tester"]);
+
+        fixture.write_file("README.md", "initial");
+        fixture.write_file("src/lib.rs", "pub fn hi() {}");
+        run_git(workspace_path, &["add", "."]);
+        run_git(workspace_path, &["commit", "-m", "initial"]);
+
+        fs::write(workspace_path.join("README.md"), "modified").expect("README を更新");
+        fixture.write_file("src/new.rs", "pub fn extra() {}");
+
+        let workspace_editor =
+            LegacyWorkspaceEditor::open(fixture.path_str()).expect("workspace を開く");
+        let flattened = workspace_editor.file_tree_with_git_statuses();
+
+        assert_eq!(
+            flattened.first().unwrap().git_status,
+            Some(GitFileStatus::Modified)
+        );
+
+        let src_node = flattened
+            .iter()
+            .find(|node| node.name == "src" && node.kind == LegacyFileTreeNodeKind::Directory)
+            .expect("src ディレクトリを見つける");
+        assert_eq!(src_node.git_status, Some(GitFileStatus::Untracked));
+
+        let new_file_node = flattened
+            .iter()
+            .find(|node| node.name == "new.rs")
+            .expect("新規ファイルを見つける");
+        assert_eq!(new_file_node.git_status, Some(GitFileStatus::Untracked));
+
+        let readme_node = flattened
+            .iter()
+            .find(|node| node.name == "README.md")
+            .expect("README ノードを見つける");
+        assert_eq!(readme_node.git_status, Some(GitFileStatus::Modified));
+    }
+
     struct WorkspaceFixture {
         path: PathBuf,
     }
@@ -358,6 +414,10 @@ mod tests {
             fs::create_dir_all(&path).expect("create temp dir");
 
             Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            self.path.as_path()
         }
 
         fn path_str(&self) -> &str {
@@ -380,5 +440,15 @@ mod tests {
                 fs::remove_dir_all(&self.path).expect("remove temp dir");
             }
         }
+    }
+
+    /// テスト用に workspace 上で git コマンドを呼び出す。
+    fn run_git(repo: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .status()
+            .expect("git 実行に失敗");
+        assert!(status.success(), "git {:?} が失敗しました", args);
     }
 }

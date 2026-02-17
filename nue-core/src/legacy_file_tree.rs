@@ -1,5 +1,8 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use crate::git_status::GitFileStatus;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LegacyFileTreeNode {
@@ -25,6 +28,23 @@ pub struct LegacyFileTree {
     root: LegacyDirectoryNode,
 }
 
+/// フラット化されたビューでのノード種別。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegacyFileTreeNodeKind {
+    Directory,
+    File,
+}
+
+/// Git 状態付きでノード情報を表現する構造体。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LegacyFileTreeNodeStatus {
+    pub path: PathBuf,
+    pub name: String,
+    pub kind: LegacyFileTreeNodeKind,
+    pub git_status: Option<GitFileStatus>,
+    pub depth: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LegacyFileTreeBuildError {
     RootNotFound,
@@ -40,6 +60,16 @@ impl LegacyFileTree {
         }
         let root = build_directory_node(path.as_path())?;
         Ok(Self { root })
+    }
+
+    /// Git ステータスと併せて各ノードを先行順で出力する。
+    pub fn flatten_with_git_statuses(
+        &self,
+        statuses: &HashMap<PathBuf, GitFileStatus>,
+    ) -> Vec<LegacyFileTreeNodeStatus> {
+        let mut flattened = Vec::new();
+        traverse_with_status(&self.root, 0, statuses, &mut flattened);
+        flattened
     }
 
     pub fn root(&self) -> &LegacyDirectoryNode {
@@ -113,9 +143,68 @@ fn map_io_error(error: std::io::Error) -> LegacyFileTreeBuildError {
     LegacyFileTreeBuildError::Io
 }
 
+fn traverse_with_status(
+    node: &LegacyDirectoryNode,
+    depth: usize,
+    statuses: &HashMap<PathBuf, GitFileStatus>,
+    flattened: &mut Vec<LegacyFileTreeNodeStatus>,
+) -> Option<GitFileStatus> {
+    let entry_index = flattened.len();
+    flattened.push(LegacyFileTreeNodeStatus {
+        path: node.absolute_path.clone(),
+        name: node.name.clone(),
+        kind: LegacyFileTreeNodeKind::Directory,
+        git_status: None,
+        depth,
+    });
+
+    let mut aggregated_status = statuses.get(&node.absolute_path).copied();
+
+    for child in &node.children {
+        match child {
+            LegacyFileTreeNode::Directory(child_dir) => {
+                let child_status = traverse_with_status(child_dir, depth + 1, statuses, flattened);
+                aggregated_status = merge_status_option(aggregated_status, child_status);
+            }
+            LegacyFileTreeNode::File(file) => {
+                let file_status = statuses.get(&file.absolute_path).copied();
+                aggregated_status = merge_status_option(aggregated_status, file_status);
+                flattened.push(LegacyFileTreeNodeStatus {
+                    path: file.absolute_path.clone(),
+                    name: file.name.clone(),
+                    kind: LegacyFileTreeNodeKind::File,
+                    git_status: file_status,
+                    depth: depth + 1,
+                });
+            }
+        }
+    }
+
+    if let Some(status) = aggregated_status {
+        flattened[entry_index].git_status = Some(status);
+    }
+
+    aggregated_status
+}
+
+fn merge_status_option(
+    left: Option<GitFileStatus>,
+    right: Option<GitFileStatus>,
+) -> Option<GitFileStatus> {
+    match (left, right) {
+        (None, None) => None,
+        (Some(status), None) | (None, Some(status)) => Some(status),
+        (Some(left_status), Some(right_status)) => Some(left_status.merge(right_status)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{LegacyFileTree, LegacyFileTreeBuildError, LegacyFileTreeNode};
+    use super::{
+        LegacyFileTree, LegacyFileTreeBuildError, LegacyFileTreeNode, LegacyFileTreeNodeKind,
+    };
+    use crate::git_status::GitFileStatus;
+    use std::collections::HashMap;
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
@@ -207,6 +296,49 @@ mod tests {
                 panic!("open ディレクトリだけが残る想定");
             }
         }
+    }
+
+    #[test]
+    fn flatten_with_git_statuses_reports_directory_and_file_statuses() {
+        let root_dir = TestDir::new("legacy-tree-git-status");
+        root_dir.create_dir("src");
+        root_dir.create_file("README.md", "root");
+        root_dir.create_file("src/lib.rs", "pub fn hi() {}");
+
+        let tree =
+            LegacyFileTree::build(root_dir.path().to_str().unwrap()).expect("tree build succeeds");
+
+        let mut statuses = HashMap::new();
+        statuses.insert(
+            fs::canonicalize(root_dir.path().join("src/lib.rs")).unwrap(),
+            GitFileStatus::Untracked,
+        );
+        statuses.insert(
+            fs::canonicalize(root_dir.path().join("README.md")).unwrap(),
+            GitFileStatus::Modified,
+        );
+
+        let flattened = tree.flatten_with_git_statuses(&statuses);
+
+        assert_eq!(flattened.len(), 4);
+        assert_eq!(flattened[0].kind, LegacyFileTreeNodeKind::Directory);
+        assert_eq!(flattened[0].depth, 0);
+        assert_eq!(flattened[0].git_status, Some(GitFileStatus::Modified));
+
+        assert_eq!(flattened[1].name, "src");
+        assert_eq!(flattened[1].kind, LegacyFileTreeNodeKind::Directory);
+        assert_eq!(flattened[1].depth, 1);
+        assert_eq!(flattened[1].git_status, Some(GitFileStatus::Untracked));
+
+        assert_eq!(flattened[2].name, "lib.rs");
+        assert_eq!(flattened[2].kind, LegacyFileTreeNodeKind::File);
+        assert_eq!(flattened[2].depth, 2);
+        assert_eq!(flattened[2].git_status, Some(GitFileStatus::Untracked));
+
+        assert_eq!(flattened[3].name, "README.md");
+        assert_eq!(flattened[3].kind, LegacyFileTreeNodeKind::File);
+        assert_eq!(flattened[3].depth, 1);
+        assert_eq!(flattened[3].git_status, Some(GitFileStatus::Modified));
     }
 
     struct TestDir {

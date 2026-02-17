@@ -1,4 +1,7 @@
+use crate::pane_history::{PaneHistory, PaneHistorySnapshot};
 use serde::{Deserialize, Serialize};
+
+const HISTORY_CAPACITY: usize = 32;
 
 /// ペイン分割の方向を表す列挙型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +52,7 @@ pub enum PaneManagerError {
     OnlyOnePane,
     TabNotFound(String),
     SingleTabPane(String),
+    HistoryUnavailable(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +75,7 @@ pub struct PaneManager {
     active_index: usize,
     next_pane_sequence: u64,
     next_tab_sequence: u64,
+    history: PaneHistory,
 }
 
 impl PaneManager {
@@ -98,6 +103,7 @@ impl PaneManager {
             explicit_active = Some(0);
         }
         manager.active_index = explicit_active.unwrap_or(0).min(manager.panes.len() - 1);
+        manager.record_initial_history();
         manager
     }
 
@@ -219,6 +225,7 @@ impl PaneManager {
         &mut self,
         direction: PaneSplitDirection,
     ) -> Result<String, PaneManagerError> {
+        let previous_active_index = self.active_index;
         let (titles, active_tab_index) = {
             let active = self
                 .panes
@@ -253,7 +260,16 @@ impl PaneManager {
         };
         let index = insert_index.min(self.panes.len());
         self.panes.insert(index, new_state);
+        let old_index = if insert_index <= previous_active_index {
+            previous_active_index + 1
+        } else {
+            previous_active_index
+        };
         self.active_index = index;
+        if old_index < self.panes.len() {
+            self.record_visit_for_pane(old_index);
+        }
+        self.record_visit_for_pane(index);
         Ok(new_id)
     }
 
@@ -261,6 +277,7 @@ impl PaneManager {
     pub fn activate(&mut self, pane_id: &str) -> Result<String, PaneManagerError> {
         let index = self.find_index(pane_id)?;
         self.active_index = index;
+        self.record_visit_for_pane(index);
         Ok(self.panes[index].id.clone())
     }
 
@@ -270,6 +287,7 @@ impl PaneManager {
             return Err(PaneManagerError::NoPanes);
         }
         self.active_index = (self.active_index + 1) % self.panes.len();
+        self.record_visit_for_pane(self.active_index);
         Ok(self.panes[self.active_index].id.clone())
     }
 
@@ -283,6 +301,7 @@ impl PaneManager {
         } else {
             self.active_index -= 1;
         }
+        self.record_visit_for_pane(self.active_index);
         Ok(self.panes[self.active_index].id.clone())
     }
 
@@ -292,12 +311,14 @@ impl PaneManager {
             return Err(PaneManagerError::OnlyOnePane);
         }
         let index = self.find_index(pane_id)?;
-        self.panes.remove(index);
+        let removed = self.panes.remove(index);
+        self.history.clear_pane(&removed.id);
         if self.active_index >= self.panes.len() {
             self.active_index = self.panes.len() - 1;
         } else if index <= self.active_index && self.active_index > 0 {
             self.active_index -= 1;
         }
+        self.record_visit_for_pane(self.active_index);
         Ok(())
     }
 
@@ -316,6 +337,7 @@ impl PaneManager {
         let insert_index = (self.active_index + 1).min(self.panes.len());
         self.panes.insert(insert_index, new_state);
         self.active_index = insert_index;
+        self.record_visit_for_pane(self.active_index);
         new_id
     }
 
@@ -337,7 +359,72 @@ impl PaneManager {
         let target_index = self.find_index(target_pane_id)?;
         self.panes[target_index].tabs.push(tab);
         self.panes[target_index].active_tab_index = self.panes[target_index].tabs.len() - 1;
+        if source_index < self.panes.len() {
+            self.record_visit_for_pane(source_index);
+        }
+        self.record_visit_for_pane(target_index);
         Ok(())
+    }
+
+    /// 指定ペインにタブを追加し、そのタブID を返す。
+    pub fn add_tab_to_pane(
+        &mut self,
+        pane_id: &str,
+        title: impl Into<String>,
+    ) -> Result<String, PaneManagerError> {
+        let index = self.find_index(pane_id)?;
+        let tab_id = self.allocate_tab_id();
+        self.panes[index].tabs.push(PaneTab {
+            id: tab_id.clone(),
+            title: title.into(),
+        });
+        self.panes[index].active_tab_index = self.panes[index].tabs.len() - 1;
+        self.record_visit_for_pane(index);
+        Ok(tab_id)
+    }
+
+    /// 指定ペイン内のタブをアクティブ化する。
+    pub fn activate_tab(
+        &mut self,
+        pane_id: &str,
+        tab_id: &str,
+    ) -> Result<String, PaneManagerError> {
+        let index = self.find_index(pane_id)?;
+        let tab_index = self.panes[index]
+            .tabs
+            .iter()
+            .position(|tab| tab.id == tab_id)
+            .ok_or_else(|| PaneManagerError::TabNotFound(tab_id.to_string()))?;
+        self.panes[index].active_tab_index = tab_index;
+        self.record_visit_for_pane(index);
+        Ok(tab_id.to_string())
+    }
+
+    /// 指定ペインで直前にアクティブだったタブへ戻る。
+    pub fn back_to_previous_tab(&mut self, pane_id: &str) -> Result<String, PaneManagerError> {
+        let index = self.find_index(pane_id)?;
+        let previous_id = self
+            .history
+            .previous(pane_id)
+            .ok_or_else(|| PaneManagerError::HistoryUnavailable(pane_id.to_string()))?;
+        let tab_index = self.panes[index]
+            .tabs
+            .iter()
+            .position(|tab| tab.id == previous_id)
+            .ok_or_else(|| PaneManagerError::TabNotFound(previous_id.clone()))?;
+        self.panes[index].active_tab_index = tab_index;
+        self.record_visit_for_pane(index);
+        Ok(previous_id)
+    }
+
+    /// 履歴スナップショットを取得する。
+    pub fn history_snapshot(&self) -> Vec<PaneHistorySnapshot> {
+        self.history.snapshot()
+    }
+
+    /// 保存済み履歴を復元する。
+    pub fn restore_history(&mut self, snapshots: Vec<PaneHistorySnapshot>) {
+        self.history.restore(snapshots);
     }
 
     fn new_with_capacity(capacity: usize) -> Self {
@@ -346,6 +433,7 @@ impl PaneManager {
             active_index: 0,
             next_pane_sequence: 1,
             next_tab_sequence: 1,
+            history: PaneHistory::new(HISTORY_CAPACITY),
         }
     }
 
@@ -398,6 +486,20 @@ impl PaneManager {
     fn extract_tab_sequence(id: &str) -> Option<u64> {
         id.strip_prefix("tab-")
             .and_then(|rest| rest.parse::<u64>().ok())
+    }
+
+    fn record_initial_history(&mut self) {
+        for index in 0..self.panes.len() {
+            self.record_visit_for_pane(index);
+        }
+    }
+
+    fn record_visit_for_pane(&mut self, pane_index: usize) {
+        if let Some(pane) = self.panes.get(pane_index)
+            && let Some(tab) = pane.tabs.get(pane.active_tab_index)
+        {
+            self.history.record_visit(&pane.id, &tab.id);
+        }
     }
 }
 
