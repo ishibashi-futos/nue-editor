@@ -64,6 +64,33 @@ impl PaneHistory {
         stack.back().cloned()
     }
 
+    /// 指定ペイン履歴から指定タブID を除去する。
+    /// 併せて履歴の連続重複を取り除き、不要なノイズを残さない。
+    pub fn remove_tab(&mut self, pane_id: &str, tab_id: &str) {
+        let Some(stack) = self.stacks.get_mut(pane_id) else {
+            return;
+        };
+        let mut filtered = VecDeque::with_capacity(stack.len());
+        for existing in stack.drain(..) {
+            if existing == tab_id {
+                continue;
+            }
+            if filtered
+                .back()
+                .map(|last| last == &existing)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            filtered.push_back(existing);
+        }
+        let is_empty = filtered.is_empty();
+        *stack = filtered;
+        if is_empty {
+            self.stacks.remove(pane_id);
+        }
+    }
+
     /// ペイン内の履歴をすべて破棄する。
     pub fn clear_pane(&mut self, pane_id: &str) {
         self.stacks.remove(pane_id);
@@ -168,5 +195,17 @@ mod tests {
         history.record_visit("pane-2", "tab-2");
         history.clear_all();
         assert_eq!(history.len("pane-2"), 0);
+    }
+
+    #[test]
+    fn remove_tab_filters_target_and_collapses_duplicates() {
+        let mut history = PaneHistory::new(10);
+        history.record_visit("pane-1", "tab-1");
+        history.record_visit("pane-1", "tab-2");
+        history.record_visit("pane-1", "tab-1");
+
+        history.remove_tab("pane-1", "tab-2");
+
+        assert!(history.previous("pane-1").is_none());
     }
 }

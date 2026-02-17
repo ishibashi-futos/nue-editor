@@ -348,6 +348,7 @@ impl PaneManager {
             .iter()
             .position(|pane| pane.contains_tab(tab_id))
             .ok_or_else(|| PaneManagerError::TabNotFound(tab_id.to_string()))?;
+        let source_pane_id = self.panes[source_index].id.clone();
         if self.panes[source_index].tabs.len() <= 1 {
             return Err(PaneManagerError::SingleTabPane(
                 self.panes[source_index].id.clone(),
@@ -362,6 +363,7 @@ impl PaneManager {
         if source_index < self.panes.len() {
             self.record_visit_for_pane(source_index);
         }
+        self.history.remove_tab(&source_pane_id, tab_id);
         self.record_visit_for_pane(target_index);
         Ok(())
     }
@@ -630,5 +632,29 @@ mod tests {
             manager.restore_layout(snapshot),
             Err(PaneLayoutRestoreError::MultipleActivePanes)
         );
+    }
+
+    #[test]
+    fn back_to_previous_tab_skips_tabs_moved_out_from_history() {
+        let mut manager = manager_with_two_panes();
+        let initial_tab = manager.layout_snapshot()[0]
+            .active_tab_id
+            .clone()
+            .expect("active tab が存在する");
+        manager
+            .add_tab_to_pane("pane-1", "previous.md")
+            .expect("tab 追加成功");
+        let moved_tab = manager
+            .add_tab_to_pane("pane-1", "moved.md")
+            .expect("tab 追加成功");
+
+        manager
+            .move_tab(&moved_tab, "pane-2")
+            .expect("tab 移動成功");
+
+        let returned = manager
+            .back_to_previous_tab("pane-1")
+            .expect("有効タブへ戻れるはず");
+        assert_eq!(returned, initial_tab);
     }
 }

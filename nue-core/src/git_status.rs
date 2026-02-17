@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::ffi::OsString;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -63,7 +66,7 @@ pub fn collect_git_statuses(root: &Path) -> HashMap<PathBuf, GitFileStatus> {
 /// Git ステータス行をパースして変更情報のベクトルで返す。
 pub fn collect_git_status_entries(root: &Path) -> Vec<GitStatusEntry> {
     let output = Command::new("git")
-        .args(["status", "--porcelain=1", "--untracked-files=normal"])
+        .args(["status", "--porcelain=1", "-z", "--untracked-files=normal"])
         .current_dir(root)
         .output();
 
@@ -72,32 +75,43 @@ pub fn collect_git_status_entries(root: &Path) -> Vec<GitStatusEntry> {
         _ => return Vec::new(),
     };
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let records = output
+        .stdout
+        .split(|byte| *byte == b'\0')
+        .collect::<Vec<_>>();
+    let mut entries = Vec::new();
+    let mut index = 0;
+    while index < records.len() {
+        let record = records[index];
+        index += 1;
+        if record.is_empty() {
+            continue;
+        }
+        let Some((entry, consumes_extra_path)) = parse_status_record(root, record) else {
+            continue;
+        };
+        entries.push(entry);
+        if consumes_extra_path {
+            index += 1;
+        }
+    }
 
-    stdout
-        .lines()
-        .filter_map(|line| parse_status_entry(root, line))
-        .collect()
+    entries
 }
 
-fn parse_status_entry(root: &Path, line: &str) -> Option<GitStatusEntry> {
-    if line.len() < 3 {
+fn parse_status_record(root: &Path, record: &[u8]) -> Option<(GitStatusEntry, bool)> {
+    if record.len() < 4 {
         return None;
     }
-    let mut chars = line.chars();
-    let index_char = chars.next().unwrap_or(' ');
-    let worktree_char = chars.next().unwrap_or(' ');
-    let tail = line.get(3..)?.trim();
-    if tail.is_empty() {
+    let index_char = record[0] as char;
+    let worktree_char = record[1] as char;
+    let path_bytes = record.get(3..)?;
+    if path_bytes.is_empty() {
         return None;
     }
 
-    let path_segment = tail
-        .split_once(" -> ")
-        .map(|(_, target)| target)
-        .unwrap_or(tail);
-
-    let canonical_path = normalize_status_path(root, Path::new(path_segment));
+    let relative_path = path_from_git_bytes(path_bytes);
+    let canonical_path = normalize_status_path(root, relative_path.as_path());
     let index_status = match (index_char, worktree_char) {
         ('?', '?') => None,
         _ => status_char_to_kind(index_char),
@@ -112,11 +126,14 @@ fn parse_status_entry(root: &Path, line: &str) -> Option<GitStatusEntry> {
         return None;
     }
 
-    Some(GitStatusEntry {
-        path: canonical_path,
-        index_status,
-        worktree_status,
-    })
+    Some((
+        GitStatusEntry {
+            path: canonical_path,
+            index_status,
+            worktree_status,
+        },
+        matches!(index_char, 'R' | 'C') || matches!(worktree_char, 'R' | 'C'),
+    ))
 }
 
 fn status_char_to_kind(ch: char) -> Option<GitChangeKind> {
@@ -151,6 +168,16 @@ pub(crate) fn normalize_status_path(root: &Path, relative: &Path) -> PathBuf {
     }
 }
 
+#[cfg(unix)]
+fn path_from_git_bytes(path_bytes: &[u8]) -> PathBuf {
+    PathBuf::from(OsString::from_vec(path_bytes.to_vec()))
+}
+
+#[cfg(not(unix))]
+fn path_from_git_bytes(path_bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(path_bytes).to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,11 +203,17 @@ mod tests {
         assert!(status.success());
     }
 
+    fn configure_user(dir: &TempDir) {
+        run_git(dir, &["config", "user.email", "nue@example.dev"]);
+        run_git(dir, &["config", "user.name", "Nue Tester"]);
+    }
+
     #[test]
     fn git_status_output_is_parsed() {
         let dir = TempDir::new().expect("tempdir");
         fs::write(dir.path().join("tracked.txt"), "initial").unwrap();
         init_repo(&dir);
+        configure_user(&dir);
         run_git(&dir, &["add", "tracked.txt"]);
         run_git(&dir, &["commit", "-m", "init"]);
 
@@ -209,5 +242,24 @@ mod tests {
             Some(&GitFileStatus::Untracked)
         );
         assert!(!statuses.contains_key(&tracked_path));
+    }
+
+    #[test]
+    fn git_status_parses_quoted_non_ascii_paths() {
+        let dir = TempDir::new().expect("tempdir");
+        init_repo(&dir);
+        configure_user(&dir);
+        run_git(&dir, &["config", "core.quotepath", "true"]);
+
+        let filename = "日本語.txt";
+        let file = dir.path().join(filename);
+        fs::write(&file, "first").unwrap();
+        run_git(&dir, &["add", filename]);
+        run_git(&dir, &["commit", "-m", "initial"]);
+        fs::write(&file, "changed").unwrap();
+
+        let statuses = collect_git_statuses(dir.path());
+        let path = fs::canonicalize(&file).unwrap();
+        assert_eq!(statuses.get(&path), Some(&GitFileStatus::Modified));
     }
 }
