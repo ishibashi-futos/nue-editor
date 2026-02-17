@@ -47,6 +47,19 @@ impl TextCriteria {
         }
         ranges
     }
+
+    /// 現在の条件が正規表現かどうかを判定する。
+    pub fn is_regex(&self) -> bool {
+        matches!(self, TextCriteria::Regex(_))
+    }
+
+    /// パターン文字列を取り出す。正規表現の場合はそのままの文字列を返す。
+    pub fn as_str(&self) -> &str {
+        match self {
+            TextCriteria::Literal(text) => text.as_str(),
+            TextCriteria::Regex(regex) => regex.as_str(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +120,29 @@ impl SearchQuery {
     }
 }
 
+impl PartialEq for TextCriteria {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (TextCriteria::Literal(lhs), TextCriteria::Literal(rhs)) => lhs == rhs,
+            (TextCriteria::Regex(lhs), TextCriteria::Regex(rhs)) => lhs.as_str() == rhs.as_str(),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for TextCriteria {}
+
+impl PartialEq for SearchQuery {
+    fn eq(&self, other: &Self) -> bool {
+        self.pattern == other.pattern
+            && self.respect_gitignore == other.respect_gitignore
+            && self.folder_filter == other.folder_filter
+            && self.file_filter == other.file_filter
+    }
+}
+
+impl Eq for SearchQuery {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchMatch {
     pub file_path: PathBuf,
@@ -127,6 +163,7 @@ impl From<io::Error> for SearchError {
     }
 }
 
+#[derive(Debug)]
 pub struct SearchService {
     root: PathBuf,
     gitignore_entries: Option<HashSet<PathBuf>>,
@@ -152,25 +189,28 @@ impl SearchService {
             .filter_map(Result::ok)
             .filter(|entry| entry.file_type().is_file())
         {
-            let relative_path = entry.path().strip_prefix(&self.root).unwrap_or(entry.path());
+            let relative_path = entry
+                .path()
+                .strip_prefix(&self.root)
+                .unwrap_or(entry.path());
             if query.respect_gitignore() && self.is_ignored(relative_path) {
                 continue;
             }
-            if let Some(folder_filter) = query.folder_filter() {
-                if !folder_filter.matches(relative_path.to_string_lossy().as_ref()) {
-                    continue;
-                }
+            if let Some(folder_filter) = query.folder_filter()
+                && !folder_filter.matches(relative_path.to_string_lossy().as_ref())
+            {
+                continue;
             }
-            if let Some(file_filter) = query.file_filter() {
-                if !file_filter.matches(
+            if let Some(file_filter) = query.file_filter()
+                && !file_filter.matches(
                     entry
                         .path()
                         .file_name()
                         .and_then(|name| name.to_str())
                         .unwrap_or(""),
-                ) {
-                    continue;
-                }
+                )
+            {
+                continue;
             }
 
             let content = fs::read_to_string(entry.path())?;
@@ -204,13 +244,15 @@ impl SearchService {
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
-            .map(|line| self.root.join(line))
+            .map(PathBuf::from)
             .collect())
     }
 
     fn is_ignored(&self, relative_path: &Path) -> bool {
         if let Some(entries) = &self.gitignore_entries {
-            entries.iter().any(|ignored| relative_path.starts_with(ignored))
+            entries
+                .iter()
+                .any(|ignored| relative_path.starts_with(ignored))
         } else {
             false
         }
@@ -260,11 +302,9 @@ mod tests {
         let tree = tempdir().unwrap();
         fs::write(tree.path().join(".gitignore"), "ignored.md\n").unwrap();
         write_file(tree.path(), "ignored.md", "needle\n");
-        write_file(tree.path(), "included.md", "needle\n");
 
         let mut service = SearchService::new(tree.path());
         let base_query = SearchQuery::literal("needle");
-
         assert!(service.search(&base_query).unwrap().is_empty());
 
         let inclusive_query = base_query.with_respect_gitignore(false);
@@ -286,8 +326,21 @@ mod tests {
         let matches = service.search(&query).unwrap();
 
         assert_eq!(matches.len(), 1);
-        assert!(matches[0]
-            .file_path
-            .ends_with(Path::new("src/app/main.rs")));
+        assert!(matches[0].file_path.ends_with(Path::new("src/app/main.rs")));
+    }
+
+    #[test]
+    fn gitignoreの相対パス指定で配下ファイルを除外する() {
+        let tree = tempdir().unwrap();
+        fs::write(tree.path().join(".gitignore"), "build\n").unwrap();
+        write_file(tree.path(), "build/output.log", "needle\n");
+        write_file(tree.path(), "src/keep.log", "needle\n");
+
+        let mut service = SearchService::new(tree.path());
+        let query = SearchQuery::literal("needle");
+        let matches = service.search(&query).unwrap();
+
+        assert_eq!(matches.len(), 1);
+        assert!(matches[0].file_path.ends_with(Path::new("src/keep.log")));
     }
 }

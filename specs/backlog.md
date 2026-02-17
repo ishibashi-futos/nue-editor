@@ -32,12 +32,12 @@
 - [ ] ED-9: ペインの再配置・Split/Close/Open to Side/Move Tab 機能などを制御する `PaneManager` を実装し、ペイン状態と Command Hub の設定と連携させる。
 - [ ] ED-10: タブ操作（ドラッグ並び替え、ピン止め、Close Others/Close to Right/Reopen Closed Tab）の各操作フローを `TabManager` でモデル化し、UI/キーボード/Command Hub いずれからも呼べるようにする。
 - [ ] ED-11: ペインごとの「直前ファイルへ戻る」履歴スタックを `PaneHistory` で保持する仕組みを作成する。
-- [ ] ED-12: セッション復元機能の骨格（分割構成・アクティブタブ・タブ順序/ピン状態）を `SessionState` に格納し、保存/復元フローを実装。失敗した場合は UI で理由付き通知。
-- [ ] ED-13: `Structure Path` コンポーネントを追加し、セグメントに Agent Status/差分マークを表示。クリック・`Alt+1`〜`Alt+5`・Command Hub Backoff と同期。
+- [x] ED-12: セッション復元機能の骨格（分割構成・アクティブタブ・タブ順序/ピン状態）を `SessionState` に格納し、保存/復元フローを実装。失敗した場合は UI で理由付き通知。
+- [x] ED-13: `Structure Path` コンポーネントを追加し、セグメントに Agent Status/差分マークを表示。クリック・`Alt+1`〜`Alt+5`・Command Hub Backoff と同期。
 
 ## 4 Search
-- [ ] SR-1: グローバル検索インターフェースと `SearchService` を構築し、正規表現・`.gitignore` 除外トグル・条件指定 (フォルダ/ファイル名/正規表現) をサポート。
-- [ ] SR-2: 検索結果一覧の Enter/F4/Shift+F4 キーボード操作でカーソルジャンプや前後移動を行うトラッキングを用意する。
+- [x] SR-1: グローバル検索インターフェースと `SearchService` を構築し、正規表現・`.gitignore` 除外トグル・条件指定 (フォルダ/ファイル名/正規表現) をサポート。
+- [x] SR-2: 検索結果一覧の Enter/F4/Shift+F4 キーボード操作でカーソルジャンプや前後移動を行うトラッキングを用意する。
 
 ## 5 VCS
 - [ ] VC-1: ファイルツリー上で git 変更ステータス (Untracked/Modified/Deleted) をラベル表示するフックを追加し、VS Command Hub などとステータスを共有。
@@ -78,3 +78,4 @@
 - [ ] `CommandHubDispatchOutcome`（`Closed` / `BackToListing` / `Failed` / `Canceled` 相当）を UI 状態遷移と通知表示へ明示マッピングする。
 - [ ] `CommandHubActionModel` の実行結果を Workspace/Pane/Terminal の実体状態更新へ接続し、モデル内完結から上位レイヤー連携へ置き換える。
 - [ ] `EditorCore` 公開型の `PathBuf` を UI 表示へ変換する文字列化ポリシー（非UTF-8時の扱い含む）を仕様化し、上位層で統一適用する。
+- [ ] `cargo clippy --all-targets -- -D warnings` で検出される既存警告（`pane_history` / `search_navigator` / `structure_path` 付近）を解消し、`scripts/sanity.sh` 完了条件を満たす。

@@ -132,6 +132,7 @@ impl SmartGutterService {
 
     pub fn on_buffer_updated(&mut self, content: &str) -> Option<SmartGutterServiceEvent> {
         let state = self.state.as_mut()?;
+        let previous_line_count = state.line_count;
         let previous_indicator_count = state.indicators.len();
         let previous_active_focus_id = state.active_focus_id.clone();
         state.line_count = count_lines(content);
@@ -146,7 +147,8 @@ impl SmartGutterService {
             state.active_focus_id = None;
         }
 
-        if previous_indicator_count != state.indicators.len()
+        if previous_line_count != state.line_count
+            || previous_indicator_count != state.indicators.len()
             || previous_active_focus_id != state.active_focus_id
         {
             return Some(SmartGutterServiceEvent::IndicatorsUpdated(
@@ -387,6 +389,25 @@ mod tests {
         assert_eq!(
             service.open_approval_request("focus-git"),
             Err(OpenApprovalRequestError::MissingApprovalRequest)
+        );
+    }
+
+    #[test]
+    fn 行数のみが変わった場合も更新イベントを返す() {
+        let mut service = SmartGutterService::new();
+        service.on_buffer_opened(Path::new("docs/readme.md"), "one\ntwo");
+        service.replace_indicators(vec![SmartGutterIndicator::git_diff(1, "focus-git")]);
+
+        let event = service.on_buffer_updated("one\ntwo\nthree");
+
+        assert_eq!(
+            event,
+            Some(SmartGutterServiceEvent::IndicatorsUpdated(
+                SmartGutterIndicatorsUpdatedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    indicator_count: 1,
+                }
+            ))
         );
     }
 }

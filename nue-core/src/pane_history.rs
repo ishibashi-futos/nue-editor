@@ -39,18 +39,10 @@ impl PaneHistory {
         }
     }
 
-    /// デフォルト容量 (32) で初期化する。
-    pub fn default() -> Self {
-        Self::new(DEFAULT_HISTORY_CAPACITY)
-    }
-
     /// 指定ペインのタブ訪問を記録する。
     /// 直前と同じタブは重複して追加しない。
     pub fn record_visit(&mut self, pane_id: &str, tab_id: &str) {
-        let stack = self
-            .stacks
-            .entry(pane_id.to_string())
-            .or_insert_with(VecDeque::new);
+        let stack = self.stacks.entry(pane_id.to_string()).or_default();
         if stack.back().map(|last| last.as_str()) == Some(tab_id) {
             return;
         }
@@ -121,6 +113,12 @@ impl PaneHistory {
             .get(pane_id)
             .map(|stack| stack.len())
             .unwrap_or(0)
+    }
+}
+
+impl Default for PaneHistory {
+    fn default() -> Self {
+        Self::new(DEFAULT_HISTORY_CAPACITY)
     }
 }
 

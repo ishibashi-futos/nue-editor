@@ -6,6 +6,8 @@ use crate::minimap_service::{
     MinimapFocusIdSyncedEvent, MinimapOverlay, MinimapOverlaysUpdatedEvent, MinimapService,
     MinimapServiceEvent, MinimapSnapshot,
 };
+use crate::search_navigator::SearchNavigator;
+use crate::search_service::{SearchError, SearchMatch, SearchQuery, SearchService};
 use crate::smart_gutter_service::{
     OpenApprovalRequestError, SmartGutterApprovalRequestOpenedEvent, SmartGutterFocusIdSyncedEvent,
     SmartGutterIndicator, SmartGutterIndicatorsUpdatedEvent, SmartGutterJumpRequestedEvent,
@@ -292,6 +294,26 @@ pub struct MarkdownPreviewRequestedEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchResultsUpdatedEvent {
+    pub query: SearchQuery,
+    pub matches: Vec<SearchMatch>,
+    pub focus_index: Option<usize>,
+    pub focus_match: Option<SearchMatch>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchFocusChangedEvent {
+    pub focus_index: Option<usize>,
+    pub focus_match: Option<SearchMatch>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchWorkspaceOutcome {
+    Matches { match_count: usize },
+    NoMatches,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedEvent {
     pub file_path: PathBuf,
     pub revision: u64,
@@ -316,13 +338,15 @@ pub enum EditorCoreEvent {
     MarkdownPreviewSynced(MarkdownPreviewSyncedEvent),
     MinimapOverlaysUpdated(MinimapOverlaysUpdatedEvent),
     MinimapFocusIdSynced(MinimapFocusIdSyncedEvent),
+    SearchResultsUpdated(SearchResultsUpdatedEvent),
+    SearchFocusChanged(SearchFocusChangedEvent),
     SmartGutterIndicatorsUpdated(SmartGutterIndicatorsUpdatedEvent),
     SmartGutterFocusIdSynced(SmartGutterFocusIdSyncedEvent),
     SmartGutterJumpRequested(SmartGutterJumpRequestedEvent),
     SmartGutterApprovalRequestOpened(SmartGutterApprovalRequestOpenedEvent),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct EditorCore {
     active_buffer: Option<EditorBuffer>,
     shortcuts: HashMap<KeyChord, EditorCommand>,
@@ -330,6 +354,8 @@ pub struct EditorCore {
     markdown_service: MarkdownService,
     minimap_service: MinimapService,
     smart_gutter_service: SmartGutterService,
+    search_service: SearchService,
+    search_navigator: SearchNavigator,
     events: VecDeque<EditorCoreEvent>,
 }
 
@@ -342,6 +368,8 @@ impl EditorCore {
             markdown_service: MarkdownService::new(),
             minimap_service: MinimapService::new(),
             smart_gutter_service: SmartGutterService::new(),
+            search_service: SearchService::new("."),
+            search_navigator: SearchNavigator::new(),
             events: VecDeque::new(),
         }
     }
@@ -610,6 +638,82 @@ impl EditorCore {
 
     pub fn drain_events(&mut self) -> Vec<EditorCoreEvent> {
         self.events.drain(..).collect()
+    }
+
+    /// 検索対象ルートを書き換え、ナビゲータをリセットする。
+    pub fn set_search_root(&mut self, root: impl Into<PathBuf>) {
+        self.search_service = SearchService::new(root);
+        self.search_navigator.update(None, Vec::new());
+    }
+
+    /// グローバル検索（Workspace）を実行し、結果を返す。
+    pub fn search_workspace(
+        &mut self,
+        query: SearchQuery,
+    ) -> Result<SearchWorkspaceOutcome, SearchError> {
+        let matches = self.search_service.search(&query)?;
+        let match_count = matches.len();
+        let matches_for_event = matches.clone();
+        self.search_navigator.update(Some(query.clone()), matches);
+        self.push_search_results_event(query, matches_for_event);
+
+        Ok(if match_count == 0 {
+            SearchWorkspaceOutcome::NoMatches
+        } else {
+            SearchWorkspaceOutcome::Matches { match_count }
+        })
+    }
+
+    /// 現在の検索フォーカスを参照する。
+    pub fn current_search_match(&self) -> Option<&SearchMatch> {
+        self.search_navigator.current()
+    }
+
+    /// 次の検索結果にフォーカスを移す。
+    pub fn advance_search_result(&mut self) -> Option<SearchMatch> {
+        let next = self.search_navigator.advance().cloned();
+        self.push_search_focus_event();
+        next
+    }
+
+    /// 前の検索結果にフォーカスを戻す。
+    pub fn retreat_search_result(&mut self) -> Option<SearchMatch> {
+        let prev = self.search_navigator.retreat().cloned();
+        self.push_search_focus_event();
+        prev
+    }
+
+    /// 指定インデックスの検索結果を選択する。
+    pub fn select_search_result(&mut self, index: usize) -> Option<SearchMatch> {
+        let selected = self.search_navigator.select_index(index).cloned();
+        if selected.is_some() {
+            self.push_search_focus_event();
+        }
+        selected
+    }
+
+    fn push_search_results_event(&mut self, query: SearchQuery, matches: Vec<SearchMatch>) {
+        let focus_index = self.search_navigator.current_index();
+        let focus_match = self.search_navigator.current().cloned();
+        self.events.push_back(EditorCoreEvent::SearchResultsUpdated(
+            SearchResultsUpdatedEvent {
+                query,
+                matches,
+                focus_index,
+                focus_match,
+            },
+        ));
+    }
+
+    fn push_search_focus_event(&mut self) {
+        let focus_index = self.search_navigator.current_index();
+        let focus_match = self.search_navigator.current().cloned();
+        self.events.push_back(EditorCoreEvent::SearchFocusChanged(
+            SearchFocusChangedEvent {
+                focus_index,
+                focus_match,
+            },
+        ));
     }
 
     pub fn execute_markdown_feature(
@@ -1085,6 +1189,9 @@ fn default_shortcut_bindings() -> Vec<(KeyChord, EditorCommand)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::search_service::TextCriteria;
+    use std::fs;
+    use tempfile::tempdir;
 
     fn save_chord() -> KeyChord {
         KeyChord::new("S", vec![KeyModifier::CmdOrCtrl])
@@ -1591,6 +1698,16 @@ mod tests {
         assert_eq!(
             core.drain_events(),
             vec![
+                EditorCoreEvent::MinimapOverlaysUpdated(MinimapOverlaysUpdatedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    overlay_count: 0,
+                }),
+                EditorCoreEvent::SmartGutterIndicatorsUpdated(
+                    crate::smart_gutter_service::SmartGutterIndicatorsUpdatedEvent {
+                        file_path: PathBuf::from("docs/readme.md"),
+                        indicator_count: 0,
+                    },
+                ),
                 EditorCoreEvent::BufferEdited(BufferEditedEvent {
                     file_path: PathBuf::from("docs/readme.md"),
                     revision: 1,
@@ -1886,5 +2003,73 @@ mod tests {
             ExecuteMarkdownFeatureOutcome::NotMarkdownFile
         );
         assert!(core.drain_events().is_empty());
+    }
+
+    fn write_search_file(base: &std::path::Path, relative: &str, content: &str) {
+        let path = base.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn search_workspace_emits_results_and_focus_event() {
+        let dir = tempdir().unwrap();
+        write_search_file(dir.path(), "docs/notes.md", "needle line\nunused");
+
+        let mut core = EditorCore::new();
+        core.set_search_root(dir.path());
+        let outcome = core
+            .search_workspace(SearchQuery::literal("needle"))
+            .unwrap();
+        assert_eq!(outcome, SearchWorkspaceOutcome::Matches { match_count: 1 });
+
+        let events = core.drain_events();
+        assert_eq!(events.len(), 1);
+        if let EditorCoreEvent::SearchResultsUpdated(event) = &events[0] {
+            assert_eq!(event.matches.len(), 1);
+            assert_eq!(event.focus_index, Some(0));
+            assert!(event.focus_match.is_some());
+            match event.query.pattern() {
+                TextCriteria::Literal(text) => assert_eq!(text, "needle"),
+                _ => panic!("patternはliteralであるべき"),
+            }
+            assert_eq!(event.matches[0].line_number, 1);
+        } else {
+            panic!("SearchResultsUpdatedイベントが期待される");
+        }
+    }
+
+    #[test]
+    fn navigating_search_results_emits_focus_change_event() {
+        let dir = tempdir().unwrap();
+        write_search_file(
+            dir.path(),
+            "docs/notes.md",
+            "needle one\nneedle two\nignored",
+        );
+
+        let mut core = EditorCore::new();
+        core.set_search_root(dir.path());
+        let outcome = core
+            .search_workspace(SearchQuery::literal("needle"))
+            .unwrap();
+        assert_eq!(outcome, SearchWorkspaceOutcome::Matches { match_count: 2 });
+        core.drain_events();
+
+        let next = core.advance_search_result().unwrap();
+        assert_eq!(next.line_number, 2);
+
+        let events = core.drain_events();
+        assert_eq!(
+            events,
+            vec![EditorCoreEvent::SearchFocusChanged(
+                SearchFocusChangedEvent {
+                    focus_index: Some(1),
+                    focus_match: Some(next.clone()),
+                }
+            )]
+        );
     }
 }

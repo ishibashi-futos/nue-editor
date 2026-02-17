@@ -131,15 +131,22 @@ fn count_changed_lines(previous_content: &str, current_content: &str) -> usize {
 
 fn collect_markdown_headings(content: &str) -> Vec<MarkdownHeading> {
     let mut headings = Vec::new();
-    let mut in_fenced_code_block = false;
+    let mut fence_delimiter: Option<&str> = None;
 
     for (line_index, line) in content.lines().enumerate() {
         let trimmed = line.trim_start();
-        if trimmed.starts_with("```") {
-            in_fenced_code_block = !in_fenced_code_block;
+        if let Some(delimiter) = fence_delimiter {
+            if trimmed.starts_with(delimiter) {
+                fence_delimiter = None;
+            }
             continue;
         }
-        if in_fenced_code_block {
+        if trimmed.starts_with("```") {
+            fence_delimiter = Some("```");
+            continue;
+        }
+        if trimmed.starts_with("~~~") {
+            fence_delimiter = Some("~~~");
             continue;
         }
         let level = trimmed.chars().take_while(|c| *c == '#').count();
@@ -294,6 +301,28 @@ mod tests {
                     line: 7,
                     level: 3,
                     title: "Sub".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn チルダフェンス内のシャープは見出しとして数えない() {
+        let headings =
+            MarkdownService::collect_headings("# Title\n~~~ts\n# not heading\n~~~\n## Section");
+
+        assert_eq!(
+            headings,
+            vec![
+                MarkdownHeading {
+                    line: 0,
+                    level: 1,
+                    title: "Title".to_string(),
+                },
+                MarkdownHeading {
+                    line: 4,
+                    level: 2,
+                    title: "Section".to_string(),
                 },
             ]
         );

@@ -113,6 +113,7 @@ impl MinimapService {
 
     pub fn on_buffer_updated(&mut self, content: &str) -> Option<MinimapServiceEvent> {
         let state = self.state.as_mut()?;
+        let previous_line_count = state.line_count;
         let previous_overlay_count = state.overlays.len();
         let previous_active_focus_id = state.active_focus_id.clone();
         state.line_count = count_lines(content);
@@ -127,7 +128,8 @@ impl MinimapService {
             state.active_focus_id = None;
         }
 
-        if previous_overlay_count != state.overlays.len()
+        if previous_line_count != state.line_count
+            || previous_overlay_count != state.overlays.len()
             || previous_active_focus_id != state.active_focus_id
         {
             return Some(MinimapServiceEvent::OverlaysUpdated(
@@ -300,6 +302,25 @@ mod tests {
                 .expect("snapshotが存在する")
                 .active_focus_id,
             Some("focus-ai".to_string())
+        );
+    }
+
+    #[test]
+    fn 行数のみが変わった場合も更新イベントを返す() {
+        let mut service = MinimapService::new();
+        service.on_buffer_opened(Path::new("docs/readme.md"), "one\ntwo");
+        service.replace_overlays(vec![MinimapOverlay::search_result(1)]);
+
+        let event = service.on_buffer_updated("one\ntwo\nthree");
+
+        assert_eq!(
+            event,
+            Some(MinimapServiceEvent::OverlaysUpdated(
+                MinimapOverlaysUpdatedEvent {
+                    file_path: PathBuf::from("docs/readme.md"),
+                    overlay_count: 1,
+                }
+            ))
         );
     }
 }
