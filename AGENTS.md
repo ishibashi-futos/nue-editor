@@ -45,20 +45,19 @@ Rust・GPUI製エディタアプリケーション
       1. `scripts/sanity.sh` を実行し、lint error / format error / unit test errorが残っていないこと
       2. Tidyが完了し認知負荷が下がること
       3. Dead codeや不要なコメントが削除されること
-4. Sync: Commit&進捗の可視化を行う
-   1. 作業のコミットを行う
-      1. コミットメッセージは、次のフォーマットに従う `<type>: <short title>\n<description>`
-         1. type: fix, feat, docs, chroe のいずれかを使用する
-         2. short title: 作業内容を表す短い英語のタイトルをつける
-         3. description: 次の内容を、日本語で記述する。変更の理由, 解決アプローチ, 影響範囲, 関連リソース(design doc, 参考にしたurlなど)
-      2. `git add .` のような乱暴なステージをしない。明示的に変更したファイルのみステージし、コミットすること。
-   2. `.github/dashboard.md` を更新する。ファイルがない場合、 `.github/dashboard_template.md` から作成する
-      - 更新日時: 作業完了時点での日時を入力する。いかなる場合でも、JSTで記述する
-      - 要対応: ユーザーの判断が必要なアイテムをチェックリスト形式で記述する
-      - スキル化候補: 繰り返し行われたコマンド実行や、一定の操作をシンプルに行うためのアイディアがあれば記述する
-      - 成果: 次の内容を、日本語で記述する。実施したタスク名, 変更の理由, 解決アプローチ, 影響範囲, 関連リソース(design doc, 参考にしたurlなど)
-      - `.github/dashboard.md` は `.gitignore` に指定しているためコミット不要
-   3. ToDo 事項があれば、 `specs/backlog.md` の `## ToDo` セクションにチェックリスト形式で追加する。ToDoセクションには、backlogにすでに書かれていることは書かない。
+4. Sync: Commitを行う
+   1. コミットメッセージは、次のフォーマットに従う `<type>: <short title>\n<description>`
+      1. type: fix, feat, docs, chroe のいずれかを使用する
+      2. short title: 作業内容を表す短い英語のタイトルをつける
+      3. description: 次の内容を、日本語で記述する。変更の理由, 解決アプローチ, 影響範囲, 関連リソース(design doc, 参考にしたurlなど)
+   2. `git add .` のような乱暴なステージをしない。明示的に変更したファイルのみステージし、コミットすること。
+5. Report: `.github/dashboard.md` を更新する。ファイルがない場合、 `.github/dashboard_template.md` から作成する
+   - 更新日時: 作業完了時点での日時を入力する。いかなる場合でも、JSTで記述する
+   - 要対応: ユーザーの判断が必要なアイテムをチェックリスト形式で記述する
+   - スキル化候補: 繰り返し行われたコマンド実行や、一定の操作をシンプルに行うためのアイディアがあれば記述する
+   - 成果: 次の内容を、日本語で記述する。実施したタスク名, 変更の理由, 解決アプローチ, 影響範囲, 関連リソース(design doc, 参考にしたurlなど)
+   - `.github/dashboard.md` は `.gitignore` に指定しているためコミット不要
+   - ToDo 事項があれば、 `specs/backlog.md` の `## ToDo` セクションにチェックリスト形式で追加する。ToDoセクションには、backlogにすでに書かれていることは書かない。
 
 ## 詳細ドキュメント
 
