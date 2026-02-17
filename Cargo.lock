@@ -3262,6 +3262,7 @@ dependencies = [
  "nue-config",
  "nue-mcp",
  "nue-semantic",
+ "percent-encoding",
  "regex",
  "ropey",
  "serde",
@@ -3291,6 +3292,7 @@ dependencies = [
  "gpui",
  "nue-config",
  "nue-core",
+ "tempfile",
 ]
 
 [[package]]

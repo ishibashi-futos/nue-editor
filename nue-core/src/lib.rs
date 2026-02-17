@@ -10,6 +10,7 @@ pub mod markdown_service;
 pub mod minimap_service;
 pub mod pane_history;
 pub mod pane_manager;
+pub mod path_display;
 pub mod repository_service;
 pub mod search_navigator;
 pub mod search_service;

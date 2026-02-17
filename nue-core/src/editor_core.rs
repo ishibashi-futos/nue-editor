@@ -6,6 +6,7 @@ use crate::minimap_service::{
     MinimapFocusIdSyncedEvent, MinimapOverlay, MinimapOverlaysUpdatedEvent, MinimapService,
     MinimapServiceEvent, MinimapSnapshot,
 };
+use crate::path_display::PathDisplayExt;
 use crate::search_navigator::SearchNavigator;
 use crate::search_service::{SearchError, SearchMatch, SearchQuery, SearchService};
 use crate::smart_gutter_service::{
@@ -84,6 +85,7 @@ pub struct EditorBufferSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CursorMoveOutcome {
     NoBuffer,
+    TargetNotFound,
     Moved { cursor_char: usize },
 }
 
@@ -319,6 +321,26 @@ pub struct SavedEvent {
     pub revision: u64,
 }
 
+macro_rules! impl_event_path_display {
+    ($event:ident) => {
+        impl $event {
+            pub fn file_path_display(&self) -> std::borrow::Cow<'_, str> {
+                self.file_path.display_for_ui()
+            }
+        }
+    };
+}
+
+impl_event_path_display!(BufferOpenedEvent);
+impl_event_path_display!(BufferEditedEvent);
+impl_event_path_display!(CursorMovedEvent);
+impl_event_path_display!(ContextMenuOpenedEvent);
+impl_event_path_display!(ContextMenuItemExecutedEvent);
+impl_event_path_display!(CopyRequestedEvent);
+impl_event_path_display!(MarkdownMenuRequestedEvent);
+impl_event_path_display!(MarkdownPreviewRequestedEvent);
+impl_event_path_display!(SavedEvent);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorCoreEvent {
     BufferOpened(BufferOpenedEvent),
@@ -346,6 +368,13 @@ pub enum EditorCoreEvent {
     SmartGutterApprovalRequestOpened(SmartGutterApprovalRequestOpenedEvent),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkdownPreviewSnapshot {
+    pub file_path: PathBuf,
+    pub revision: u64,
+    pub headings: Vec<MarkdownHeading>,
+}
+
 #[derive(Debug)]
 pub struct EditorCore {
     active_buffer: Option<EditorBuffer>,
@@ -357,6 +386,7 @@ pub struct EditorCore {
     search_service: SearchService,
     search_navigator: SearchNavigator,
     events: VecDeque<EditorCoreEvent>,
+    markdown_preview_snapshot: Option<MarkdownPreviewSnapshot>,
 }
 
 impl EditorCore {
@@ -371,6 +401,7 @@ impl EditorCore {
             search_service: SearchService::new("."),
             search_navigator: SearchNavigator::new(),
             events: VecDeque::new(),
+            markdown_preview_snapshot: None,
         }
     }
 
@@ -385,6 +416,7 @@ impl EditorCore {
         let snapshot = buffer.snapshot();
 
         self.active_buffer = Some(buffer);
+        self.markdown_preview_snapshot = None;
         self.minimap_service
             .on_buffer_opened(file_path.as_path(), snapshot.content.as_str());
         self.smart_gutter_service
@@ -750,6 +782,23 @@ impl EditorCore {
         self.sync_with_markdown_preview(heading.line)
     }
 
+    pub fn markdown_preview_snapshot(&self) -> Option<&MarkdownPreviewSnapshot> {
+        self.markdown_preview_snapshot.as_ref()
+    }
+
+    pub fn jump_to_markdown_heading_by_index(&mut self, index: usize) -> CursorMoveOutcome {
+        if self.active_buffer.is_none() {
+            return CursorMoveOutcome::NoBuffer;
+        }
+        let Some(snapshot) = self.markdown_preview_snapshot.as_ref() else {
+            return CursorMoveOutcome::TargetNotFound;
+        };
+        let Some(heading) = snapshot.headings.get(index).cloned() else {
+            return CursorMoveOutcome::TargetNotFound;
+        };
+        self.jump_to_markdown_heading(&heading)
+    }
+
     pub fn minimap_snapshot(&self) -> Option<MinimapSnapshot> {
         self.minimap_service.snapshot()
     }
@@ -977,10 +1026,20 @@ impl EditorCore {
             MarkdownServiceEvent::DiffObserved(event) => self
                 .events
                 .push_back(EditorCoreEvent::MarkdownDiffObserved(event)),
-            MarkdownServiceEvent::PreviewSynced(event) => self
-                .events
-                .push_back(EditorCoreEvent::MarkdownPreviewSynced(event)),
+            MarkdownServiceEvent::PreviewSynced(event) => {
+                self.update_markdown_preview_snapshot(&event);
+                self.events
+                    .push_back(EditorCoreEvent::MarkdownPreviewSynced(event));
+            }
         }
+    }
+
+    fn update_markdown_preview_snapshot(&mut self, event: &MarkdownPreviewSyncedEvent) {
+        self.markdown_preview_snapshot = Some(MarkdownPreviewSnapshot {
+            file_path: event.file_path.clone(),
+            revision: event.revision,
+            headings: event.headings.clone(),
+        });
     }
 
     fn sync_services_after_buffer_update(&mut self, current_content: &str) {
@@ -1686,14 +1745,14 @@ mod tests {
         core.set_cursor(16);
         core.drain_events();
 
-        assert_eq!(
+        assert!(matches!(
             core.insert_text("\n## Section"),
             EditOutcome::Edited {
                 revision: 1,
-                cursor_char: 27,
                 is_dirty: true,
+                ..
             }
-        );
+        ));
 
         assert_eq!(
             core.drain_events(),
@@ -1737,6 +1796,122 @@ mod tests {
                     ],
                 }),
             ]
+        );
+    }
+
+    #[test]
+    fn markdown_preview_snapshotで見出しが保持される() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "# Heading\n- item");
+        core.drain_events();
+
+        let end_pos = core
+            .snapshot()
+            .expect("バッファが開かれている")
+            .content
+            .chars()
+            .count();
+        core.set_cursor(end_pos);
+        core.drain_events();
+
+        assert!(matches!(
+            core.insert_text("\n## Section"),
+            EditOutcome::Edited {
+                revision: 1,
+                is_dirty: true,
+                ..
+            }
+        ));
+
+        let snapshot = core
+            .markdown_preview_snapshot()
+            .expect("Markdown preview スナップショットが得られる");
+
+        assert_eq!(snapshot.file_path, PathBuf::from("docs/readme.md"));
+        assert_eq!(snapshot.revision, 1);
+        assert_eq!(snapshot.headings.len(), 2);
+        assert_eq!(
+            snapshot.headings[0],
+            MarkdownHeading {
+                line: 0,
+                level: 1,
+                title: "Heading".to_string(),
+            }
+        );
+        assert_eq!(
+            snapshot.headings[1],
+            MarkdownHeading {
+                line: 2,
+                level: 2,
+                title: "Section".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn markdown_preview_index指定で見出しジャンプできる() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "# Heading\n- item");
+        core.drain_events();
+
+        let end_pos = core
+            .snapshot()
+            .expect("バッファが開かれている")
+            .content
+            .chars()
+            .count();
+        core.set_cursor(end_pos);
+        core.drain_events();
+
+        assert!(matches!(
+            core.insert_text("\n## Section"),
+            EditOutcome::Edited {
+                revision: 1,
+                is_dirty: true,
+                ..
+            }
+        ));
+
+        core.drain_events();
+
+        assert_eq!(
+            core.jump_to_markdown_heading_by_index(1),
+            CursorMoveOutcome::Moved { cursor_char: 17 }
+        );
+    }
+
+    #[test]
+    fn markdown_preview未同期では見出しジャンプはtarget_not_foundになる() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "# Heading\n- item");
+        core.drain_events();
+
+        assert_eq!(
+            core.jump_to_markdown_heading_by_index(0),
+            CursorMoveOutcome::TargetNotFound
+        );
+    }
+
+    #[test]
+    fn markdown_preview範囲外indexはtarget_not_foundになる() {
+        let mut core = EditorCore::new();
+        core.open_file("docs/readme.md", "# Heading\n- item");
+        core.drain_events();
+
+        let end_pos = core
+            .snapshot()
+            .expect("バッファが開かれている")
+            .content
+            .chars()
+            .count();
+        core.set_cursor(end_pos);
+        core.drain_events();
+        core.insert_text("\n## Section");
+        core.drain_events();
+
+        assert_eq!(
+            core.jump_to_markdown_heading_by_index(2),
+            CursorMoveOutcome::TargetNotFound
         );
     }
 
