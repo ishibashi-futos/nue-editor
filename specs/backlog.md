@@ -31,7 +31,7 @@
 - [ ] ED-8: ビュー側で Markdown Preview を右クリックメニューに統合し、プレビューとのスクロール同期や見出しクリックで本文にジャンプする機能を追加する。
 - [ ] ED-9: ペインの再配置・Split/Close/Open to Side/Move Tab 機能などを制御する `PaneManager` を実装し、ペイン状態と Command Hub の設定と連携させる。
 - [ ] ED-10: タブ操作（ドラッグ並び替え、ピン止め、Close Others/Close to Right/Reopen Closed Tab）の各操作フローを `TabManager` でモデル化し、UI/キーボード/Command Hub いずれからも呼べるようにする。
-- [ ] ED-11: ペインごとの「直前ファイルへ戻る」履歴スタックを `PaneHistory` で保持する仕組みを作成する。
+- [x] ED-11: ペインごとの「直前ファイルへ戻る」履歴スタックを `PaneHistory` で保持する仕組みを作成する。
 - [x] ED-12: セッション復元機能の骨格（分割構成・アクティブタブ・タブ順序/ピン状態）を `SessionState` に格納し、保存/復元フローを実装。失敗した場合は UI で理由付き通知。
 - [x] ED-13: `Structure Path` コンポーネントを追加し、セグメントに Agent Status/差分マークを表示。クリック・`Alt+1`〜`Alt+5`・Command Hub Backoff と同期。
 
@@ -40,9 +40,9 @@
 - [x] SR-2: 検索結果一覧の Enter/F4/Shift+F4 キーボード操作でカーソルジャンプや前後移動を行うトラッキングを用意する。
 
 ## 5 VCS
-- [ ] VC-1: ファイルツリー上で git 変更ステータス (Untracked/Modified/Deleted) をラベル表示するフックを追加し、VS Command Hub などとステータスを共有。
-- [ ] VC-2: ワークスペース内のリポジトリを検出する `RepositoryService` と、変更一覧 (ステージ・差分) 表示 UI を作成。
-- [ ] VC-3: コミットログビューを追加し、選択リポジトリベースでログを取得・表示できるようにする。
+- [x] VC-1: ファイルツリー上で git 変更ステータス (Untracked/Modified/Deleted) をラベル表示するフックを追加し、VS Command Hub などとステータスを共有。
+- [x] VC-2: ワークスペース内のリポジトリを検出する `RepositoryService` と、変更一覧 (ステージ・差分) 表示 UI を作成。
+- [x] VC-3: コミットログビューを追加し、選択リポジトリベースでログを取得・表示できるようにする。
 
 ## 6 Terminal
 - [ ] TM-1: Terminal セッション起動 UI と `PTY` 管理を実装し、Workspace Session に紐づく run_command を PTY で実行。
