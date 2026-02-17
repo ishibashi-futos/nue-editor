@@ -4,6 +4,7 @@ use crate::{
         PickerExecuteOutcome,
     },
     pane_manager::{PaneItem, PaneManager, PaneManagerError, PaneSplitDirection},
+    tab_manager::{DEFAULT_HISTORY_CAPACITY, TabManager, TabManagerError, TabSnapshot},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +13,7 @@ pub enum PanelTarget {
     GlobalSearch,
     Vcs,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceItem {
     pub id: String,
@@ -69,6 +71,28 @@ pub enum CommandActionEvent {
     TerminalClosed {
         terminal_id: String,
     },
+    TabPinned {
+        tab_id: String,
+    },
+    TabUnpinned {
+        tab_id: String,
+    },
+    TabClosed {
+        tab_id: String,
+    },
+    TabClosedOthers {
+        tab_id: String,
+    },
+    TabClosedToRight {
+        tab_id: String,
+    },
+    TabReopened {
+        tab_id: String,
+    },
+    TabReordered {
+        tab_id: String,
+        new_index: usize,
+    },
     SelectedOpened {
         target: SelectedOpenTarget,
     },
@@ -110,11 +134,12 @@ pub enum CommandHubDispatchOutcome {
     BackToListing { candidate_id: Option<String> },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct CommandHubActionModel {
     workspaces: Vec<WorkspaceItem>,
     pane_manager: PaneManager,
     terminals: Vec<TerminalItem>,
+    tab_manager: TabManager,
     selected_text: Option<String>,
     focused_panel: Option<PanelTarget>,
 }
@@ -124,14 +149,24 @@ impl CommandHubActionModel {
         workspaces: Vec<WorkspaceItem>,
         panes: Vec<PaneItem>,
         terminals: Vec<TerminalItem>,
+        tabs: Vec<TabSnapshot>,
     ) -> Self {
         Self {
             workspaces,
             pane_manager: PaneManager::from_items(panes),
             terminals,
+            tab_manager: TabManager::from_snapshots(tabs, DEFAULT_HISTORY_CAPACITY),
             selected_text: None,
             focused_panel: None,
         }
+    }
+
+    pub fn tabs(&self) -> Vec<TabSnapshot> {
+        self.tab_manager.tabs()
+    }
+
+    pub fn sync_tabs(&mut self, snapshots: Vec<TabSnapshot>) {
+        self.tab_manager = TabManager::from_snapshots(snapshots, DEFAULT_HISTORY_CAPACITY);
     }
 
     pub fn set_selected_text(&mut self, selected_text: Option<String>) {
@@ -180,6 +215,26 @@ impl CommandHubActionModel {
             ("terminal", "close") | ("terminal", "kill") => {
                 terminal_candidates_for_target(command, &self.terminals, "close", true)
             }
+            ("tab", "pin") => {
+                let tabs = self.tabs();
+                tab_candidates_for_target(&tabs, &command.target, "pin", false)
+            }
+            ("tab", "unpin") => {
+                let tabs = self.tabs();
+                tab_candidates_for_target(&tabs, &command.target, "unpin", false)
+            }
+            ("tab", "close") => {
+                let tabs = self.tabs();
+                tab_candidates_for_target(&tabs, &command.target, "close", true)
+            }
+            ("tab", "close_others") => {
+                let tabs = self.tabs();
+                tab_candidates_for_target(&tabs, &command.target, "close_others", true)
+            }
+            ("tab", "close_to_right") => {
+                let tabs = self.tabs();
+                tab_candidates_for_target(&tabs, &command.target, "close_to_right", true)
+            }
             _ => Vec::new(),
         }
     }
@@ -212,6 +267,13 @@ impl CommandHubActionModel {
             ("terminal", "split") => self.execute_terminal_split(),
             ("terminal", "close") | ("terminal", "kill") => self.execute_terminal_close(command),
             ("selected", "open") => self.execute_selected_open(command),
+            ("tab", "pin") => self.execute_tab_pin(command),
+            ("tab", "unpin") => self.execute_tab_unpin(command),
+            ("tab", "close") => self.execute_tab_close(command),
+            ("tab", "close_others") => self.execute_tab_close_others(command),
+            ("tab", "close_to_right") => self.execute_tab_close_to_right(command),
+            ("tab", "reopen") => self.execute_tab_reopen(command),
+            ("tab", "reorder") => self.execute_tab_reorder(command),
             _ => unsupported_command(command),
         }
     }
@@ -559,6 +621,151 @@ impl CommandHubActionModel {
             }
         }
     }
+
+    fn execute_tab_pin(&mut self, command: &ParsedCommand) -> CommandActionOutcome {
+        match self.resolve_tab_id(&command.target) {
+            Ok(tab_id) => match self.tab_manager.pin(&tab_id) {
+                Ok(()) => CommandActionOutcome::Executed(CommandActionEvent::TabPinned { tab_id }),
+                Err(error) => {
+                    CommandActionOutcome::Failed(tab_error_to_action_error(&tab_id, error))
+                }
+            },
+            Err(error) => CommandActionOutcome::Failed(error),
+        }
+    }
+
+    fn execute_tab_unpin(&mut self, command: &ParsedCommand) -> CommandActionOutcome {
+        match self.resolve_tab_id(&command.target) {
+            Ok(tab_id) => match self.tab_manager.unpin(&tab_id) {
+                Ok(()) => {
+                    CommandActionOutcome::Executed(CommandActionEvent::TabUnpinned { tab_id })
+                }
+                Err(error) => {
+                    CommandActionOutcome::Failed(tab_error_to_action_error(&tab_id, error))
+                }
+            },
+            Err(error) => CommandActionOutcome::Failed(error),
+        }
+    }
+
+    fn execute_tab_close(&mut self, command: &ParsedCommand) -> CommandActionOutcome {
+        match self.resolve_tab_id(&command.target) {
+            Ok(tab_id) => match self.tab_manager.close_tab(&tab_id) {
+                Ok(()) => CommandActionOutcome::Executed(CommandActionEvent::TabClosed { tab_id }),
+                Err(error) => {
+                    CommandActionOutcome::Failed(tab_error_to_action_error(&tab_id, error))
+                }
+            },
+            Err(error) => CommandActionOutcome::Failed(error),
+        }
+    }
+
+    fn execute_tab_close_others(&mut self, command: &ParsedCommand) -> CommandActionOutcome {
+        match self.resolve_tab_id(&command.target) {
+            Ok(tab_id) => match self.tab_manager.close_others(&tab_id) {
+                Ok(()) => {
+                    CommandActionOutcome::Executed(CommandActionEvent::TabClosedOthers { tab_id })
+                }
+                Err(error) => {
+                    CommandActionOutcome::Failed(tab_error_to_action_error(&tab_id, error))
+                }
+            },
+            Err(error) => CommandActionOutcome::Failed(error),
+        }
+    }
+
+    fn execute_tab_close_to_right(&mut self, command: &ParsedCommand) -> CommandActionOutcome {
+        match self.resolve_tab_id(&command.target) {
+            Ok(tab_id) => match self.tab_manager.close_to_right(&tab_id) {
+                Ok(()) => {
+                    CommandActionOutcome::Executed(CommandActionEvent::TabClosedToRight { tab_id })
+                }
+                Err(error) => {
+                    CommandActionOutcome::Failed(tab_error_to_action_error(&tab_id, error))
+                }
+            },
+            Err(error) => CommandActionOutcome::Failed(error),
+        }
+    }
+
+    fn execute_tab_reopen(&mut self, _command: &ParsedCommand) -> CommandActionOutcome {
+        match self.tab_manager.reopen_last_closed() {
+            Ok(tab_id) => {
+                CommandActionOutcome::Executed(CommandActionEvent::TabReopened { tab_id })
+            }
+            Err(error) => CommandActionOutcome::Failed(tab_error_to_action_error("", error)),
+        }
+    }
+
+    fn execute_tab_reorder(&mut self, command: &ParsedCommand) -> CommandActionOutcome {
+        let raw_target = command.target.trim();
+        if raw_target.is_empty() {
+            return CommandActionOutcome::Failed(CommandActionError::MissingTarget {
+                domain: command.domain.clone(),
+                verb: command.verb.clone(),
+            });
+        }
+        let parts: Vec<&str> = raw_target.split_whitespace().collect();
+        if parts.len() < 2 {
+            return CommandActionOutcome::Failed(CommandActionError::InvalidTarget {
+                reason: "タブIDと移動先インデックスを空白区切りで指定してください".to_string(),
+            });
+        }
+        let index_token = parts.last().unwrap();
+        let tab_descriptor = parts[..parts.len() - 1].join(" ").trim().to_string();
+        if tab_descriptor.is_empty() {
+            return CommandActionOutcome::Failed(CommandActionError::MissingTarget {
+                domain: command.domain.clone(),
+                verb: command.verb.clone(),
+            });
+        }
+
+        let new_index = match index_token.parse::<usize>() {
+            Ok(value) => value,
+            Err(_) => {
+                return CommandActionOutcome::Failed(CommandActionError::InvalidTarget {
+                    reason: "インデックスは非負整数でなければなりません".to_string(),
+                });
+            }
+        };
+
+        match self.resolve_tab_id(&tab_descriptor) {
+            Ok(tab_id) => match self.tab_manager.reorder(&tab_id, new_index) {
+                Ok(()) => CommandActionOutcome::Executed(CommandActionEvent::TabReordered {
+                    tab_id,
+                    new_index,
+                }),
+                Err(error) => {
+                    CommandActionOutcome::Failed(tab_error_to_action_error(&tab_id, error))
+                }
+            },
+            Err(error) => CommandActionOutcome::Failed(error),
+        }
+    }
+
+    fn resolve_tab_id(&self, target: &str) -> Result<String, CommandActionError> {
+        let trimmed = target.trim();
+        if trimmed.is_empty() {
+            return self
+                .tab_manager
+                .active_tab_id()
+                .map(|id| id.to_string())
+                .ok_or_else(|| CommandActionError::NotFound {
+                    resource: "tab",
+                    target: "active".to_string(),
+                });
+        }
+
+        let tabs = self.tab_manager.tabs();
+        let Some(index) = tab_index_by_target(&tabs, trimmed) else {
+            return Err(CommandActionError::NotFound {
+                resource: "tab",
+                target: trimmed.to_string(),
+            });
+        };
+
+        Ok(tabs[index].id.clone())
+    }
 }
 
 pub fn dispatch_selected_action(
@@ -781,6 +988,79 @@ fn terminal_index_by_target(terminals: &[TerminalItem], target: &str) -> Option<
     })
 }
 
+fn tab_candidate_for_tab(
+    tab: &TabSnapshot,
+    verb: &str,
+    requires_confirmation: bool,
+) -> PickerCandidate {
+    PickerCandidate {
+        id: format!("tab::{verb}::{}", tab.id),
+        label: format!("Tab: {}", tab.title),
+        command: ParsedCommand {
+            mode: CommandMode::Action,
+            domain: "tab".to_string(),
+            verb: verb.to_string(),
+            target: tab.id.clone(),
+        },
+        requires_confirmation,
+    }
+}
+
+fn tab_candidates(
+    tabs: &[TabSnapshot],
+    verb: &str,
+    requires_confirmation: bool,
+) -> Vec<PickerCandidate> {
+    tabs.iter()
+        .map(|tab| tab_candidate_for_tab(tab, verb, requires_confirmation))
+        .collect()
+}
+
+fn tab_candidates_for_target(
+    tabs: &[TabSnapshot],
+    target: &str,
+    verb: &str,
+    requires_confirmation: bool,
+) -> Vec<PickerCandidate> {
+    if target.trim().is_empty() {
+        return tab_candidates(tabs, verb, requires_confirmation);
+    }
+    let Some(index) = tab_index_by_target(tabs, target) else {
+        return Vec::new();
+    };
+    vec![tab_candidate_for_tab(
+        &tabs[index],
+        verb,
+        requires_confirmation,
+    )]
+}
+
+fn tab_index_by_target(tabs: &[TabSnapshot], target: &str) -> Option<usize> {
+    let normalized_target = normalized_lookup(target);
+    tabs.iter().position(|tab| {
+        normalized_lookup(tab.id.as_str()) == normalized_target
+            || normalized_lookup(tab.title.as_str()) == normalized_target
+    })
+}
+
+fn tab_error_to_action_error(tab_id: &str, error: TabManagerError) -> CommandActionError {
+    match error {
+        TabManagerError::TabNotFound(_) => CommandActionError::NotFound {
+            resource: "tab",
+            target: tab_id.to_string(),
+        },
+        TabManagerError::InvalidTargetIndex(index) => CommandActionError::InvalidTarget {
+            reason: format!("tab index {index} は無効です"),
+        },
+        TabManagerError::AlreadySingleTab => CommandActionError::InvalidTarget {
+            reason: "tab が1つしかないため閉じられません".to_string(),
+        },
+        TabManagerError::ReopenHistoryEmpty => CommandActionError::InvalidTarget {
+            reason: "閉じたタブがありません".to_string(),
+        },
+    }
+}
+
 fn parse_pane_split_direction(value: &str) -> Option<PaneSplitDirection> {
     let token = normalized_lookup(value);
     let first = token.split_whitespace().next().unwrap_or("");
@@ -865,6 +1145,26 @@ mod tests {
                 title: "zsh".to_string(),
                 is_active: true,
             }],
+            vec![
+                TabSnapshot {
+                    id: "tab-1".to_string(),
+                    title: "README.md".to_string(),
+                    pinned: false,
+                    is_active: true,
+                },
+                TabSnapshot {
+                    id: "tab-2".to_string(),
+                    title: "lib.rs".to_string(),
+                    pinned: false,
+                    is_active: false,
+                },
+                TabSnapshot {
+                    id: "tab-3".to_string(),
+                    title: "mod.rs".to_string(),
+                    pinned: true,
+                    is_active: false,
+                },
+            ],
         )
     }
 
@@ -1072,6 +1372,42 @@ mod tests {
             CommandHubDispatchOutcome::Failed(CommandActionError::NotFound {
                 resource: "workspace",
                 target: "workspace-999".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn tab_close_can_be_reopened() {
+        let mut model = model();
+        let close_cmd = action_command("tab", "close", "tab-2");
+
+        assert_eq!(
+            model.execute(&close_cmd),
+            CommandActionOutcome::Executed(CommandActionEvent::TabClosed {
+                tab_id: "tab-2".to_string()
+            })
+        );
+        assert_eq!(model.tabs().len(), 2);
+
+        assert_eq!(
+            model.execute(&action_command("tab", "reopen", "")),
+            CommandActionOutcome::Executed(CommandActionEvent::TabReopened {
+                tab_id: "tab-2".to_string()
+            })
+        );
+        assert_eq!(model.tabs().len(), 3);
+    }
+
+    #[test]
+    fn tab_reorder_dispatches_event() {
+        let mut model = model();
+        let reorder_cmd = action_command("tab", "reorder", "tab-3 0");
+
+        assert_eq!(
+            model.execute(&reorder_cmd),
+            CommandActionOutcome::Executed(CommandActionEvent::TabReordered {
+                tab_id: "tab-3".to_string(),
+                new_index: 0,
             })
         );
     }

@@ -3264,6 +3264,8 @@ dependencies = [
  "nue-semantic",
  "regex",
  "ropey",
+ "serde",
+ "serde_json",
  "tempfile",
  "walkdir",
 ]

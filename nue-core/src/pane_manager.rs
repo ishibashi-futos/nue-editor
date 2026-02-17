@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 /// ペイン分割の方向を表す列挙型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaneSplitDirection {
@@ -13,6 +15,30 @@ pub struct PaneItem {
     pub id: String,
     pub title: String,
     pub is_active: bool,
+}
+
+/// セッション復元に向けたペイン内タブのスナップショット。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneTabSnapshot {
+    pub id: String,
+    pub title: String,
+}
+
+/// ペイン構成・タブ順序・アクション状態を含むスナップショット。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneLayoutSnapshot {
+    pub id: String,
+    pub tabs: Vec<PaneTabSnapshot>,
+    pub active_tab_id: Option<String>,
+    pub is_active: bool,
+}
+
+/// セッションからの復元中に発生するエラー種別。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PaneLayoutRestoreError {
+    EmptyLayout,
+    EmptyPane(String),
+    MultipleActivePanes,
 }
 
 /// PaneManager が返す操作エラー。
@@ -73,6 +99,99 @@ impl PaneManager {
         }
         manager.active_index = explicit_active.unwrap_or(0).min(manager.panes.len() - 1);
         manager
+    }
+
+    /// 現在のペイン構成をスナップショットとして取得する。
+    pub fn layout_snapshot(&self) -> Vec<PaneLayoutSnapshot> {
+        self.panes
+            .iter()
+            .enumerate()
+            .map(|(index, pane)| PaneLayoutSnapshot {
+                id: pane.id.clone(),
+                tabs: pane
+                    .tabs
+                    .iter()
+                    .map(|tab| PaneTabSnapshot {
+                        id: tab.id.clone(),
+                        title: tab.title.clone(),
+                    })
+                    .collect(),
+                active_tab_id: pane
+                    .tabs
+                    .get(pane.active_tab_index)
+                    .map(|tab| tab.id.clone()),
+                is_active: index == self.active_index,
+            })
+            .collect()
+    }
+
+    /// スナップショットからペイン構成を再構築する。
+    pub fn restore_layout(
+        &mut self,
+        snapshots: Vec<PaneLayoutSnapshot>,
+    ) -> Result<(), PaneLayoutRestoreError> {
+        if snapshots.is_empty() {
+            return Err(PaneLayoutRestoreError::EmptyLayout);
+        }
+        let mut reconstructed = Vec::with_capacity(snapshots.len());
+        let mut max_pane_seq = 0_u64;
+        let mut max_tab_seq = 0_u64;
+        let mut active_index = None;
+
+        for (index, layout_snapshot) in snapshots.into_iter().enumerate() {
+            let PaneLayoutSnapshot {
+                id,
+                tabs,
+                active_tab_id,
+                is_active,
+            } = layout_snapshot;
+            if tabs.is_empty() {
+                return Err(PaneLayoutRestoreError::EmptyPane(id));
+            }
+
+            max_pane_seq = max_pane_seq.max(Self::extract_sequence(id.as_str()).unwrap_or(0));
+            let mut pane_tabs = Vec::with_capacity(tabs.len());
+            let mut active_tab_index = 0;
+            let mut found_active_tab = false;
+
+            for (tab_index, pane_tab_snapshot) in tabs.into_iter().enumerate() {
+                max_tab_seq = max_tab_seq
+                    .max(Self::extract_tab_sequence(pane_tab_snapshot.id.as_str()).unwrap_or(0));
+                if !found_active_tab
+                    && active_tab_id
+                        .as_deref()
+                        .is_some_and(|target| target == pane_tab_snapshot.id)
+                {
+                    active_tab_index = tab_index;
+                    found_active_tab = true;
+                }
+                pane_tabs.push(PaneTab {
+                    id: pane_tab_snapshot.id,
+                    title: pane_tab_snapshot.title,
+                });
+            }
+
+            reconstructed.push(PaneState {
+                id: id.clone(),
+                tabs: pane_tabs,
+                active_tab_index,
+            });
+
+            if is_active {
+                if active_index.is_some() {
+                    return Err(PaneLayoutRestoreError::MultipleActivePanes);
+                }
+                active_index = Some(index);
+            }
+        }
+
+        self.panes = reconstructed;
+        self.active_index = active_index
+            .unwrap_or(0)
+            .min(self.panes.len().saturating_sub(1));
+        self.next_pane_sequence = max_pane_seq + 1;
+        self.next_tab_sequence = max_tab_seq + 1;
+        Ok(())
     }
 
     /// 現在のペイン一覧を PaneItem として返す。
@@ -270,6 +389,16 @@ impl PaneManager {
             self.next_pane_sequence = self.next_pane_sequence.max(number + 1);
         }
     }
+
+    fn extract_sequence(id: &str) -> Option<u64> {
+        id.strip_prefix("pane-")
+            .and_then(|rest| rest.parse::<u64>().ok())
+    }
+
+    fn extract_tab_sequence(id: &str) -> Option<u64> {
+        id.strip_prefix("tab-")
+            .and_then(|rest| rest.parse::<u64>().ok())
+    }
 }
 
 impl PaneState {
@@ -364,5 +493,40 @@ mod tests {
         manager.move_tab(tab_id, "pane-2").unwrap();
         assert_eq!(manager.panes()[0].title, "README.md");
         assert_eq!(manager.panes()[1].title, "extra.md");
+    }
+
+    #[test]
+    fn layout_snapshot_and_restore_roundtrip() {
+        let mut manager = manager_with_two_panes();
+        manager.activate("pane-2").unwrap();
+        let snapshot = manager.layout_snapshot();
+
+        let mut restored = manager_with_two_panes();
+        restored.restore_layout(snapshot).unwrap();
+
+        assert_eq!(restored.panes().len(), 2);
+        assert_eq!(restored.active_pane_id(), Some("pane-2"));
+    }
+
+    #[test]
+    fn restore_layout_fails_on_empty_snapshot() {
+        let mut manager = manager_with_two_panes();
+        assert_eq!(
+            manager.restore_layout(Vec::new()),
+            Err(PaneLayoutRestoreError::EmptyLayout)
+        );
+    }
+
+    #[test]
+    fn restore_layout_fails_on_multiple_active_panes() {
+        let mut manager = manager_with_two_panes();
+        let mut snapshot = manager.layout_snapshot();
+        snapshot[0].is_active = true;
+        snapshot[1].is_active = true;
+
+        assert_eq!(
+            manager.restore_layout(snapshot),
+            Err(PaneLayoutRestoreError::MultipleActivePanes)
+        );
     }
 }

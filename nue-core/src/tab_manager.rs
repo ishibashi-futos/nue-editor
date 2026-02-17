@@ -1,7 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
+pub const DEFAULT_HISTORY_CAPACITY: usize = 32;
+
 /// タブの状態スナップショット。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TabSnapshot {
     pub id: String,
     pub title: String,
@@ -86,7 +89,7 @@ impl TabManager {
 
     /// 指定した定義列からタブを構築する。
     pub fn with_definitions(defs: impl IntoIterator<Item = TabDefinition>) -> Self {
-        let mut manager = Self::new(32);
+        let mut manager = Self::new(DEFAULT_HISTORY_CAPACITY);
         for def in defs {
             manager.open_tab(def.title, def.pinned);
         }
@@ -94,6 +97,40 @@ impl TabManager {
             manager.open_tab("untitled", false);
         }
         manager.active_index = 0;
+        manager
+    }
+
+    /// スナップショットから状態を復元する。
+    pub fn from_snapshots(
+        snapshots: impl IntoIterator<Item = TabSnapshot>,
+        history_capacity: usize,
+    ) -> Self {
+        let mut manager = Self::new(history_capacity);
+        let snapshots: Vec<TabSnapshot> = snapshots.into_iter().collect();
+        if snapshots.is_empty() {
+            manager.open_tab("untitled", false);
+            manager.active_index = 0;
+            return manager;
+        }
+        let mut highest_seq = 0_u64;
+        manager.tabs = snapshots
+            .iter()
+            .map(|snapshot| {
+                highest_seq =
+                    highest_seq.max(Self::extract_sequence(snapshot.id.as_str()).unwrap_or(0));
+                Tab {
+                    id: snapshot.id.clone(),
+                    title: snapshot.title.clone(),
+                    pinned: snapshot.pinned,
+                }
+            })
+            .collect();
+        manager.next_tab_sequence = highest_seq + 1;
+        manager.active_index = snapshots
+            .iter()
+            .position(|snapshot| snapshot.is_active)
+            .unwrap_or(0)
+            .min(manager.tabs.len().saturating_sub(1));
         manager
     }
 
@@ -109,6 +146,11 @@ impl TabManager {
                 is_active: index == self.active_index,
             })
             .collect()
+    }
+
+    /// タブの位置を取得する。
+    pub fn index_of(&self, tab_id: &str) -> Result<usize, TabManagerError> {
+        self.find_index(tab_id)
     }
 
     /// 現在アクティブなタブのID。
@@ -214,6 +256,11 @@ impl TabManager {
             .ok_or_else(|| TabManagerError::not_found(tab_id))
     }
 
+    fn extract_sequence(id: &str) -> Option<u64> {
+        id.strip_prefix("tab-")
+            .and_then(|rest| rest.parse::<u64>().ok())
+    }
+
     fn set_pin(&mut self, tab_id: &str, pinned: bool) -> Result<(), TabManagerError> {
         let index = self.find_index(tab_id)?;
         self.tabs[index].pinned = pinned;
@@ -313,5 +360,46 @@ mod tests {
         assert_eq!(reopened, closing);
         assert_eq!(manager.tabs().len(), 4);
         assert_eq!(manager.active_tab_id(), Some(reopened.as_str()));
+    }
+
+    #[test]
+    fn from_snapshots_rebuilds_state_and_sequence() {
+        let snapshots = vec![
+            TabSnapshot {
+                id: "tab-2".to_string(),
+                title: "README.md".to_string(),
+                pinned: false,
+                is_active: false,
+            },
+            TabSnapshot {
+                id: "tab-7".to_string(),
+                title: "lib.rs".to_string(),
+                pinned: true,
+                is_active: true,
+            },
+        ];
+        let mut manager = TabManager::from_snapshots(snapshots, 4);
+        assert_eq!(manager.active_tab_id(), Some("tab-7"));
+        assert!(manager.tabs().iter().any(|tab| tab.pinned));
+        assert_eq!(manager.index_of("tab-7").unwrap(), 1);
+        let appended = manager.add_tab("new.rs", false);
+        assert_eq!(appended, "tab-8");
+        assert_eq!(manager.tabs().len(), 3);
+    }
+
+    #[test]
+    fn from_snapshots_falls_back_to_single_tab_when_empty() {
+        let manager = TabManager::from_snapshots(Vec::<TabSnapshot>::new(), 3);
+        let tabs = manager.tabs();
+        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs[0].title, "untitled");
+        assert_eq!(manager.active_tab_id(), Some(tabs[0].id.as_str()));
+    }
+
+    #[test]
+    fn index_of_returns_position_when_present() {
+        let manager = setup_manager();
+        let target = manager.tabs()[2].id.clone();
+        assert_eq!(manager.index_of(&target).unwrap(), 2);
     }
 }
