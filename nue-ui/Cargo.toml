@@ -10,3 +10,6 @@ nue-core = { version = "0.1.0", path = "../nue-core" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-text = "=21.0.0"
+
+[dev-dependencies]
+tempfile = "3.8"
