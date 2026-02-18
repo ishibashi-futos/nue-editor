@@ -9,6 +9,24 @@ pub struct EditorInputController<'a> {
     core: &'a mut EditorCore,
 }
 
+/// UI からの入力イベントを定義する。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditorInputEvent {
+    Shortcut(KeyChord),
+    OpenContextMenu,
+    ExecuteContextMenuItem(EditorContextMenuItem),
+    MarkdownFeature(MarkdownFeature),
+}
+
+/// UI 入力イベントの結果を表す。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditorInputOutcome {
+    Shortcut(ShortcutDispatchOutcome),
+    ContextMenuOpened(OpenEditorContextMenuOutcome),
+    ContextMenuExecuted(ExecuteEditorContextMenuOutcome),
+    MarkdownFeature(ExecuteMarkdownFeatureOutcome),
+}
+
 impl<'a> EditorInputController<'a> {
     /// 指定した EditorCore インスタンスに入力操作を委譲する構造体を作成する。
     pub fn new(core: &'a mut EditorCore) -> Self {
@@ -39,6 +57,24 @@ impl<'a> EditorInputController<'a> {
         feature: MarkdownFeature,
     ) -> ExecuteMarkdownFeatureOutcome {
         self.core.execute_markdown_feature(feature)
+    }
+
+    /// UI から渡された入力イベントを処理する。
+    pub fn handle_event(&mut self, event: EditorInputEvent) -> EditorInputOutcome {
+        match event {
+            EditorInputEvent::Shortcut(chord) => {
+                EditorInputOutcome::Shortcut(self.dispatch_shortcut(&chord))
+            }
+            EditorInputEvent::OpenContextMenu => {
+                EditorInputOutcome::ContextMenuOpened(self.open_context_menu())
+            }
+            EditorInputEvent::ExecuteContextMenuItem(item) => {
+                EditorInputOutcome::ContextMenuExecuted(self.execute_context_menu_item(item))
+            }
+            EditorInputEvent::MarkdownFeature(feature) => {
+                EditorInputOutcome::MarkdownFeature(self.execute_markdown_feature(feature))
+            }
+        }
     }
 }
 
@@ -112,6 +148,71 @@ mod tests {
             ExecuteMarkdownFeatureOutcome::Executed {
                 feature: MarkdownFeature::SyntaxHighlight,
             }
+        );
+    }
+
+    #[test]
+    fn handle_event_dispatches_shortcut_chords() {
+        let mut core = EditorCore::new();
+        let file_path = sample_path("main", "rs");
+        core.open_file(&file_path, "fn main() {}\n");
+        core.register_default_shortcuts();
+
+        let mut controller = EditorInputController::new(&mut core);
+        let chord = KeyChord::new("s", vec![KeyModifier::CmdOrCtrl]);
+        let event = EditorInputEvent::Shortcut(chord.clone());
+
+        let outcome = controller.handle_event(event);
+
+        assert_eq!(
+            outcome,
+            EditorInputOutcome::Shortcut(ShortcutDispatchOutcome::Executed {
+                command: EditorCommand::Save,
+                outcome: CommandExecutionOutcome::Save(SaveOutcome::NotDirty)
+            })
+        );
+        // `handle_event` should accept multiple invocations without reinitializing the controller.
+        let second_event = EditorInputEvent::Shortcut(chord);
+        let second_outcome = controller.handle_event(second_event);
+
+        assert!(matches!(
+            second_outcome,
+            EditorInputOutcome::Shortcut(ShortcutDispatchOutcome::Executed { .. })
+        ));
+    }
+
+    #[test]
+    fn handle_event_for_context_menu_and_markdown() {
+        let mut core = EditorCore::new();
+        let file_path = sample_path("context", "md");
+        core.open_file(&file_path, "fn context() {}\n");
+        let mut controller = EditorInputController::new(&mut core);
+
+        let open_outcome = controller.handle_event(EditorInputEvent::OpenContextMenu);
+        assert!(matches!(
+            open_outcome,
+            EditorInputOutcome::ContextMenuOpened(OpenEditorContextMenuOutcome::Opened { file_path: opened_path })
+            if opened_path == file_path
+        ));
+
+        let execute_outcome = controller.handle_event(EditorInputEvent::ExecuteContextMenuItem(
+            EditorContextMenuItem::Copy,
+        ));
+        assert!(matches!(
+            execute_outcome,
+            EditorInputOutcome::ContextMenuExecuted(ExecuteEditorContextMenuOutcome::Executed { item, outcome })
+            if item == EditorContextMenuItem::Copy
+                && matches!(outcome, CommandExecutionOutcome::Copy(CopyOutcome::Copied))
+        ));
+
+        let markdown_outcome = controller.handle_event(EditorInputEvent::MarkdownFeature(
+            MarkdownFeature::SyntaxHighlight,
+        ));
+        assert_eq!(
+            markdown_outcome,
+            EditorInputOutcome::MarkdownFeature(ExecuteMarkdownFeatureOutcome::Executed {
+                feature: MarkdownFeature::SyntaxHighlight
+            })
         );
     }
 }
