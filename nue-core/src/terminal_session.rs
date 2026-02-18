@@ -196,6 +196,11 @@ impl TerminalSession {
             },
         ));
     }
+
+    /// 紐づくワークスペースセッションの識別子。
+    pub fn workspace_session_id(&self) -> &str {
+        &self.workspace_session_id
+    }
 }
 
 #[cfg(test)]

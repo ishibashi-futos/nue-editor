@@ -45,7 +45,7 @@
 - [x] VC-3: コミットログビューを追加し、選択リポジトリベースでログを取得・表示できるようにする。
 
 ## 6 Terminal
-- [ ] TM-1: Terminal セッション起動 UI と `PTY` 管理を実装し、Workspace Session に紐づく run_command を PTY で実行。
+- [x] TM-1: Terminal セッション起動 UI と `PTY` 管理を実装し、Workspace Session に紐づく run_command を PTY で実行。
 - [ ] TM-2: スクロールバック（500行以上）と Unicode/全角対応のレンダリングコンポーネントを整備。
 - [ ] TM-3: 同一 Workspace Session 内のコマンドキュー (Running/Queued/Completed/Failed) を FIFO で制御し、`tool.execution.queue_max_pending` 超過時に拒否・UI通知。
 - [ ] TM-4: 環境変数注入の制御 (workspace_env、未許可の追加禁止) と CWD 固定化。
@@ -78,4 +78,4 @@
 - [x] `CommandHubDispatchOutcome`（`Closed` / `BackToListing` / `Failed` / `Canceled` 相当）を UI 状態遷移と通知表示へ明示マッピングする。
 - [x] `CommandHubActionModel` の実行結果を Workspace/Pane/Terminal の実体状態更新へ接続し、モデル内完結から上位レイヤー連携へ置き換える。
 - [x] `EditorCore` 公開型の `PathBuf` を UI 表示へ変換する文字列化ポリシー（非UTF-8時の扱い含む）を仕様化し、上位層で統一適用する。
-- [ ] `cargo clippy --all-targets -- -D warnings` で検出される既存警告（`pane_history` / `search_navigator` / `structure_path` 付近）を解消し、`scripts/sanity.sh` 完了条件を満たす。
+- [x] `cargo clippy --all-targets -- -D warnings` で検出される既存警告（`pane_history` / `search_navigator` / `structure_path` 付近）を解消し、`scripts/sanity.sh` 完了条件を満たす。
