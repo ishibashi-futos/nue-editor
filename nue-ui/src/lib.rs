@@ -4,5 +4,6 @@ pub mod editor_events;
 pub mod editor_input;
 pub mod legacy_explorer;
 pub mod terminal;
+pub mod terminal_display;
 pub mod ui_style;
 pub mod workspace_rail;
