@@ -6,6 +6,7 @@
 # 2. agentが過去のコミットを読み取り、自己レビューを行います
 # ==================================================
 
+clear
 set -o pipefail
 set -o errexit
 set -o nounset
@@ -49,6 +50,36 @@ run_codex_exec() {
     exec "$prompt" >> "$AGENT_LOGS" 2>&1
 }
 
+has_uncommitted_src_changes() {
+  local changes
+  changes=$(git status --porcelain -- ':(glob)**/src/**')
+  [ -n "$changes" ]
+}
+
+run_commit_agent_if_needed() {
+  if ! has_uncommitted_src_changes; then
+    return
+  fi
+
+  echo "📝 uncommitted changes detected under src/. running commit agent ..."
+  local commit_prompt
+  commit_prompt=$(cat <<EOF
+Development WorkflowのSync手順に従って、src/配下の未コミット変更をコミットしてください。
+- 変更内容を確認し、妥当な単位でステージする
+- コミット対象
+  - src/ 以下のファイル
+  - specs/backlog.md 更新がある場合
+  - Cargo.lock, Cargo.toml 更新がある場合
+- AGENTS.mdで定義されたコミットメッセージ形式を厳守する
+- 変更に応じた type(fix/feat/docs/chroe) を選択する
+- コミット完了後、実行した判断を簡潔に報告する
+EOF
+)
+  run_codex_exec "dangerously-bypass-approvals-and-sandbox" "never" "$MODEL" "$MODEL_REASONING_EFFORT" "$commit_prompt"
+  echo "✅ commit agent completed"
+}
+
+## Agent による開発（5回繰り返す）
 for i in $(seq 1 5)
 do
   echo -n "🤖 $i: running task ... "
@@ -56,14 +87,21 @@ do
   RAW_AGENT_PROMPT=$(cat $PROMPT)
   AGENT_PROMPT=$(cat <<EOF
 $RAW_AGENT_PROMPT
-##Recent changes
+## Recent changes
 $COMMIT_LOG
 EOF
 )
   run_codex_exec "dangerously-bypass-approvals-and-sandbox" "never" "$MODEL" "$MODEL_REASONING_EFFORT" "$AGENT_PROMPT"
   echo "✅ completed"
+  run_commit_agent_if_needed
+  if ! has_uncommitted_src_changes; then
+    echo "❌ 何らかの不具合が発生している可能性があります。 logs/workflow.log を確認してください"
+    exit 1
+    return
+  fi
 done
 
+# レビュー
 REVIEW_MODEL="gpt-5.3-codex"
 REVIEW_MODEL_REASONING_EFFORT="high"
 REVIEW_PROMPT=".agents/review/AGENTS.md"
@@ -86,6 +124,7 @@ if [ ! -f "$REVIEW_DOC" ]; then
   exit 1
 fi
 
+## レビュー結果の修正
 echo "🤖 post-review fixing ... "
 POST_FIXING_MODEL="gpt-5.3-codex"
 POST_FIXING_MODEL_REASONING_EFFORT="medium"

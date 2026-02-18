@@ -21,6 +21,7 @@ pub struct MinimapUiState {
 /// Smart Gutter が参照するジャンプリクエスト情報。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SmartGutterJumpRequest {
+    pub file_path: PathBuf,
     pub focus_id: String,
     pub line: usize,
 }
@@ -28,8 +29,10 @@ pub struct SmartGutterJumpRequest {
 /// Smart Gutter 上で承認リクエストが開かれた履歴。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SmartGutterApprovalRequest {
+    pub file_path: PathBuf,
     pub focus_id: String,
     pub approval_request_id: String,
+    pub targets: Vec<SmartGutterSyncTarget>,
 }
 
 /// Smart Gutter 描画用の状態スナップショット。
@@ -48,6 +51,8 @@ pub struct SmartGutterUiState {
 pub struct EditorEventSubscriber {
     minimap_state: Option<MinimapUiState>,
     smart_gutter_state: Option<SmartGutterUiState>,
+    pending_jump_requests: Vec<SmartGutterJumpRequest>,
+    pending_approval_requests: Vec<SmartGutterApprovalRequest>,
 }
 
 impl EditorEventSubscriber {
@@ -81,6 +86,13 @@ impl EditorEventSubscriber {
         }
     }
 
+    /// 複数のイベントを一括適用する。
+    pub fn apply_events(&mut self, events: &[EditorCoreEvent]) {
+        for event in events {
+            self.apply_event(event);
+        }
+    }
+
     /// 最後に記録された Minimap 状態を返す。
     pub fn minimap_state(&self) -> Option<&MinimapUiState> {
         self.minimap_state.as_ref()
@@ -89,6 +101,26 @@ impl EditorEventSubscriber {
     /// 最後に記録された Smart Gutter 状態を返す。
     pub fn smart_gutter_state(&self) -> Option<&SmartGutterUiState> {
         self.smart_gutter_state.as_ref()
+    }
+
+    /// 保持中のジャンプリクエストを取り出す。
+    pub fn drain_jump_requests(&mut self) -> Vec<SmartGutterJumpRequest> {
+        std::mem::take(&mut self.pending_jump_requests)
+    }
+
+    /// 保持中の承認リクエストを取り出す。
+    pub fn drain_approval_requests(&mut self) -> Vec<SmartGutterApprovalRequest> {
+        std::mem::take(&mut self.pending_approval_requests)
+    }
+
+    /// ジャンプリクエストが存在するか。
+    pub fn has_pending_jump_requests(&self) -> bool {
+        !self.pending_jump_requests.is_empty()
+    }
+
+    /// 承認リクエストが存在するか。
+    pub fn has_pending_approval_requests(&self) -> bool {
+        !self.pending_approval_requests.is_empty()
     }
 
     fn apply_minimap_overlays_updated(&mut self, payload: &MinimapOverlaysUpdatedEvent) {
@@ -196,10 +228,17 @@ impl EditorEventSubscriber {
             focus_id,
             focus_targets,
             last_jump_request: Some(SmartGutterJumpRequest {
+                file_path: payload.file_path.clone(),
                 focus_id: payload.focus_id.clone(),
                 line: payload.line,
             }),
             last_approval_request,
+        });
+
+        self.pending_jump_requests.push(SmartGutterJumpRequest {
+            file_path: payload.file_path.clone(),
+            focus_id: payload.focus_id.clone(),
+            line: payload.line,
         });
     }
 
@@ -228,9 +267,18 @@ impl EditorEventSubscriber {
             focus_targets,
             last_jump_request,
             last_approval_request: Some(SmartGutterApprovalRequest {
+                file_path: payload.file_path.clone(),
                 focus_id: payload.focus_id.clone(),
                 approval_request_id: payload.approval_request_id.clone(),
+                targets: payload.targets.clone(),
             }),
+        });
+
+        self.pending_approval_requests.push(SmartGutterApprovalRequest {
+            file_path: payload.file_path.clone(),
+            focus_id: payload.focus_id.clone(),
+            approval_request_id: payload.approval_request_id.clone(),
+            targets: payload.targets.clone(),
         });
     }
 }
@@ -311,6 +359,7 @@ mod tests {
         assert_eq!(
             state.last_jump_request,
             Some(SmartGutterJumpRequest {
+                file_path: path.clone(),
                 focus_id: "focus-lib".into(),
                 line: 42,
             })
@@ -318,7 +367,7 @@ mod tests {
 
         subscriber.apply_event(&EditorCoreEvent::SmartGutterApprovalRequestOpened(
             SmartGutterApprovalRequestOpenedEvent {
-                file_path: path,
+                file_path: path.clone(),
                 focus_id: "focus-lib".into(),
                 approval_request_id: "approval-1".into(),
                 targets: vec![SmartGutterSyncTarget::StructurePath],
@@ -329,9 +378,67 @@ mod tests {
         assert_eq!(
             state.last_approval_request,
             Some(SmartGutterApprovalRequest {
+                file_path: path.clone(),
                 focus_id: "focus-lib".into(),
                 approval_request_id: "approval-1".into(),
+                targets: vec![SmartGutterSyncTarget::StructurePath],
             })
         );
+        assert!(subscriber.has_pending_approval_requests());
+        let drained = subscriber.drain_approval_requests();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].focus_id, "focus-lib");
+        assert!(!subscriber.has_pending_approval_requests());
+        let notifications = subscriber.drain_approval_requests();
+        assert!(notifications.is_empty());
+    }
+
+    #[test]
+    fn jump_requests_are_buffered_for_ui_consumers() {
+        let mut subscriber = EditorEventSubscriber::new();
+        let path = sample_path("batch");
+
+        subscriber.apply_event(&EditorCoreEvent::SmartGutterJumpRequested(
+            SmartGutterJumpRequestedEvent {
+                file_path: path.clone(),
+                focus_id: "jump-target".into(),
+                line: 100,
+            },
+        ));
+
+        assert!(subscriber.has_pending_jump_requests());
+        let requests = subscriber.drain_jump_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].file_path, path);
+        assert_eq!(requests[0].focus_id, "jump-target");
+        assert!(!subscriber.has_pending_jump_requests());
+    }
+
+    #[test]
+    fn apply_events_applies_sequence() {
+        let mut subscriber = EditorEventSubscriber::new();
+        let path = sample_path("batch");
+
+        subscriber.apply_events(&[
+            EditorCoreEvent::MinimapOverlaysUpdated(MinimapOverlaysUpdatedEvent {
+                file_path: path.clone(),
+                overlay_count: 1,
+            }),
+            EditorCoreEvent::MinimapFocusIdSynced(MinimapFocusIdSyncedEvent {
+                file_path: path.clone(),
+                focus_id: "focus-batch".into(),
+                targets: vec![FocusSyncTarget::CommandHub],
+            }),
+            EditorCoreEvent::SmartGutterJumpRequested(SmartGutterJumpRequestedEvent {
+                file_path: path.clone(),
+                focus_id: "jump-batch".into(),
+                line: 7,
+            }),
+        ]);
+
+        let minimap = subscriber.minimap_state().unwrap();
+        assert_eq!(minimap.focus_id.as_deref(), Some("focus-batch"));
+        assert_eq!(minimap.overlay_count, 1);
+        assert!(subscriber.has_pending_jump_requests());
     }
 }
