@@ -274,12 +274,13 @@ impl EditorEventSubscriber {
             }),
         });
 
-        self.pending_approval_requests.push(SmartGutterApprovalRequest {
-            file_path: payload.file_path.clone(),
-            focus_id: payload.focus_id.clone(),
-            approval_request_id: payload.approval_request_id.clone(),
-            targets: payload.targets.clone(),
-        });
+        self.pending_approval_requests
+            .push(SmartGutterApprovalRequest {
+                file_path: payload.file_path.clone(),
+                focus_id: payload.focus_id.clone(),
+                approval_request_id: payload.approval_request_id.clone(),
+                targets: payload.targets.clone(),
+            });
     }
 }
 
