@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::terminal_scrollback::{Scrollback, ScrollbackLine};
 
 pub type TerminalCommandId = u64;
+pub type TerminalAuditId = u64;
 pub const DEFAULT_QUEUE_MAX_PENDING: usize = 4;
 
 /// `tool.execution.queue_max_pending` に対応する実行設定。
@@ -145,6 +146,7 @@ pub struct TerminalNotificationEvent {
 pub enum TerminalSessionEvent {
     StatusChanged(TerminalStatusEvent),
     Notification(TerminalNotificationEvent),
+    Audit(TerminalAuditEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,12 +165,60 @@ pub enum QueueCommandOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueueRejectionReason {
+    QueueFull {
+        queue_max_pending: usize,
+        agent_id: String,
+        command_line: String,
+    },
+    ContextViolation {
+        error: RunCommandContextError,
+        agent_id: String,
+        command_line: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueueInterruptionReason {
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalAuditPayload {
+    QueueTransition {
+        command_id: TerminalCommandId,
+        agent_id: String,
+        command_line: String,
+        state: TerminalCommandState,
+        queue_length: usize,
+    },
+    QueueRejected {
+        reason: QueueRejectionReason,
+    },
+    QueueInterrupted {
+        command_id: TerminalCommandId,
+        agent_id: String,
+        command_line: String,
+        reason: QueueInterruptionReason,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalAuditEvent {
+    pub id: TerminalAuditId,
+    pub workspace_session_id: String,
+    pub payload: TerminalAuditPayload,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalSession {
     workspace_session_id: String,
     workspace_root: PathBuf,
     workspace_env: BTreeMap<String, String>,
     tool_execution_config: ToolExecutionConfig,
     next_command_id: TerminalCommandId,
+    next_audit_id: TerminalAuditId,
     running_command_id: Option<TerminalCommandId>,
     queued_command_ids: VecDeque<TerminalCommandId>,
     commands: BTreeMap<TerminalCommandId, TerminalCommandSnapshot>,
@@ -226,6 +276,7 @@ impl TerminalSession {
             workspace_env,
             tool_execution_config,
             next_command_id: 1,
+            next_audit_id: 1,
             running_command_id: None,
             queued_command_ids: VecDeque::new(),
             commands: BTreeMap::new(),
@@ -250,19 +301,34 @@ impl TerminalSession {
 
     pub fn enqueue_run_command(&mut self, request: RunCommandRequest) -> QueueCommandOutcome {
         if let Err(error) = self.validate_run_command_context(&request) {
+            let agent_id = request.agent_id.clone();
+            let command_line = request.command_line.clone();
+            let audit_error = error.clone();
             let message = format!("run_command を拒否しました: {}", error);
             self.push_notification(message);
+            self.push_queue_rejection_audit_event(QueueRejectionReason::ContextViolation {
+                error: audit_error,
+                agent_id,
+                command_line,
+            });
             return QueueCommandOutcome::RejectedContextViolation { error };
         }
 
         if self.running_command_id.is_some()
             && self.queued_command_ids.len() >= self.queue_max_pending()
         {
+            let agent_id = request.agent_id.clone();
+            let command_line = request.command_line.clone();
             let queue_max = self.queue_max_pending();
             self.push_notification(format!(
                 "run_command キューの上限({})に達したため実行を拒否しました。先行する run_command の完了を待つか中断してください。",
                 queue_max
             ));
+            self.push_queue_rejection_audit_event(QueueRejectionReason::QueueFull {
+                queue_max_pending: queue_max,
+                agent_id,
+                command_line,
+            });
             return QueueCommandOutcome::RejectedQueueFull;
         }
 
@@ -310,6 +376,9 @@ impl TerminalSession {
         let completed_snapshot = self.commands.get(&completed_id).cloned();
         self.update_command_state(completed_id, state);
         self.push_status_event(completed_id, state);
+        if !success {
+            self.push_queue_interruption_audit_event(completed_id, QueueInterruptionReason::Failed);
+        }
         if let Some(snapshot) = completed_snapshot {
             self.push_completion_notification(&snapshot, success);
         }
@@ -360,6 +429,56 @@ impl TerminalSession {
         self.events.drain(..).collect()
     }
 
+    fn allocate_audit_id(&mut self) -> TerminalAuditId {
+        let id = self.next_audit_id;
+        self.next_audit_id += 1;
+        id
+    }
+
+    fn push_audit_event(&mut self, payload: TerminalAuditPayload) {
+        let event = TerminalAuditEvent {
+            id: self.allocate_audit_id(),
+            workspace_session_id: self.workspace_session_id.clone(),
+            payload,
+        };
+        self.events.push_back(TerminalSessionEvent::Audit(event));
+    }
+
+    fn push_queue_transition_audit_event(
+        &mut self,
+        command_id: TerminalCommandId,
+        state: TerminalCommandState,
+    ) {
+        if let Some(command) = self.commands.get(&command_id) {
+            self.push_audit_event(TerminalAuditPayload::QueueTransition {
+                command_id,
+                agent_id: command.agent_id.clone(),
+                command_line: command.command_line.clone(),
+                state,
+                queue_length: self.queued_command_ids.len(),
+            });
+        }
+    }
+
+    fn push_queue_rejection_audit_event(&mut self, reason: QueueRejectionReason) {
+        self.push_audit_event(TerminalAuditPayload::QueueRejected { reason });
+    }
+
+    fn push_queue_interruption_audit_event(
+        &mut self,
+        command_id: TerminalCommandId,
+        reason: QueueInterruptionReason,
+    ) {
+        if let Some(command) = self.commands.get(&command_id) {
+            self.push_audit_event(TerminalAuditPayload::QueueInterrupted {
+                command_id,
+                agent_id: command.agent_id.clone(),
+                command_line: command.command_line.clone(),
+                reason,
+            });
+        }
+    }
+
     fn allocate_command_id(&mut self) -> TerminalCommandId {
         let command_id = self.next_command_id;
         self.next_command_id += 1;
@@ -392,6 +511,7 @@ impl TerminalSession {
                 state,
                 queue_length: self.queued_command_ids.len(),
             }));
+        self.push_queue_transition_audit_event(command_id, state);
     }
 
     /// コマンド完了時の通知をキューへ追加する。
@@ -540,11 +660,33 @@ mod tests {
                     state: TerminalCommandState::Running,
                     queue_length: 0,
                 }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 1,
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    payload: TerminalAuditPayload::QueueTransition {
+                        command_id: 1,
+                        agent_id: "agent-a".to_string(),
+                        command_line: "cargo test".to_string(),
+                        state: TerminalCommandState::Running,
+                        queue_length: 0,
+                    },
+                }),
                 TerminalSessionEvent::StatusChanged(TerminalStatusEvent {
                     workspace_session_id: "workspace-session-1".to_string(),
                     command_id: 2,
                     state: TerminalCommandState::Queued,
                     queue_length: 1,
+                }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 2,
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    payload: TerminalAuditPayload::QueueTransition {
+                        command_id: 2,
+                        agent_id: "agent-b".to_string(),
+                        command_line: "cargo clippy".to_string(),
+                        state: TerminalCommandState::Queued,
+                        queue_length: 1,
+                    },
                 }),
             ]
         );
@@ -576,6 +718,17 @@ mod tests {
                     state: TerminalCommandState::Completed,
                     queue_length: 1,
                 }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 3,
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    payload: TerminalAuditPayload::QueueTransition {
+                        command_id: 1,
+                        agent_id: "agent-a".to_string(),
+                        command_line: "cargo test".to_string(),
+                        state: TerminalCommandState::Completed,
+                        queue_length: 1,
+                    },
+                }),
                 TerminalSessionEvent::Notification(TerminalNotificationEvent {
                     workspace_session_id: "workspace-session-1".to_string(),
                     message: "run_command `cargo test` (agent agent-a) が完了しました".to_string(),
@@ -585,6 +738,17 @@ mod tests {
                     command_id: 2,
                     state: TerminalCommandState::Running,
                     queue_length: 0,
+                }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 4,
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    payload: TerminalAuditPayload::QueueTransition {
+                        command_id: 2,
+                        agent_id: "agent-b".to_string(),
+                        command_line: "cargo clippy".to_string(),
+                        state: TerminalCommandState::Running,
+                        queue_length: 0,
+                    },
                 }),
             ]
         );
@@ -614,6 +778,27 @@ mod tests {
                     state: TerminalCommandState::Failed,
                     queue_length: 0,
                 }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 2,
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    payload: TerminalAuditPayload::QueueTransition {
+                        command_id: 1,
+                        agent_id: "agent-a".to_string(),
+                        command_line: "cargo test".to_string(),
+                        state: TerminalCommandState::Failed,
+                        queue_length: 0,
+                    },
+                }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 3,
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    payload: TerminalAuditPayload::QueueInterrupted {
+                        command_id: 1,
+                        agent_id: "agent-a".to_string(),
+                        command_line: "cargo test".to_string(),
+                        reason: QueueInterruptionReason::Failed,
+                    },
+                }),
                 TerminalSessionEvent::Notification(TerminalNotificationEvent {
                     workspace_session_id: "workspace-session-1".to_string(),
                     message: "run_command `cargo test` (agent agent-a) が失敗しました".to_string(),
@@ -641,12 +826,23 @@ mod tests {
         );
         assert_eq!(
             session.drain_events(),
-            vec![TerminalSessionEvent::Notification(
-                TerminalNotificationEvent {
+            vec![
+                TerminalSessionEvent::Notification(TerminalNotificationEvent {
                     workspace_session_id: "workspace-session-1".to_string(),
                     message: expected_message,
-                }
-            )]
+                }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 4,
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    payload: TerminalAuditPayload::QueueRejected {
+                        reason: QueueRejectionReason::QueueFull {
+                            queue_max_pending: session.queue_max_pending(),
+                            agent_id: "agent-d".to_string(),
+                            command_line: "cmd-4".to_string(),
+                        },
+                    },
+                }),
+            ]
         );
     }
 
@@ -750,12 +946,23 @@ mod tests {
         assert_eq!(session.queue_len(), 0);
         assert_eq!(
             session.drain_events(),
-            vec![TerminalSessionEvent::Notification(
-                TerminalNotificationEvent {
+            vec![
+                TerminalSessionEvent::Notification(TerminalNotificationEvent {
                     workspace_session_id: "workspace-session-env".to_string(),
                     message: format!("run_command を拒否しました: {}", expected_error),
-                }
-            )]
+                }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 1,
+                    workspace_session_id: "workspace-session-env".to_string(),
+                    payload: TerminalAuditPayload::QueueRejected {
+                        reason: QueueRejectionReason::ContextViolation {
+                            error: expected_error,
+                            agent_id: "agent-d".to_string(),
+                            command_line: "cmd".to_string(),
+                        },
+                    },
+                }),
+            ]
         );
     }
 
@@ -781,12 +988,23 @@ mod tests {
         assert_eq!(session.queue_len(), 0);
         assert_eq!(
             session.drain_events(),
-            vec![TerminalSessionEvent::Notification(
-                TerminalNotificationEvent {
+            vec![
+                TerminalSessionEvent::Notification(TerminalNotificationEvent {
                     workspace_session_id: "workspace-session-env".to_string(),
                     message: format!("run_command を拒否しました: {}", expected_error),
-                }
-            )]
+                }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 1,
+                    workspace_session_id: "workspace-session-env".to_string(),
+                    payload: TerminalAuditPayload::QueueRejected {
+                        reason: QueueRejectionReason::ContextViolation {
+                            error: expected_error,
+                            agent_id: "agent-x".to_string(),
+                            command_line: "cmd".to_string(),
+                        },
+                    },
+                }),
+            ]
         );
     }
 
@@ -817,12 +1035,23 @@ mod tests {
         assert_eq!(session.queue_len(), 0);
         assert_eq!(
             session.drain_events(),
-            vec![TerminalSessionEvent::Notification(
-                TerminalNotificationEvent {
+            vec![
+                TerminalSessionEvent::Notification(TerminalNotificationEvent {
                     workspace_session_id: "workspace-session-env".to_string(),
                     message: format!("run_command を拒否しました: {}", expected_error),
-                }
-            )]
+                }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 1,
+                    workspace_session_id: "workspace-session-env".to_string(),
+                    payload: TerminalAuditPayload::QueueRejected {
+                        reason: QueueRejectionReason::ContextViolation {
+                            error: expected_error,
+                            agent_id: "agent-y".to_string(),
+                            command_line: "cmd".to_string(),
+                        },
+                    },
+                }),
+            ]
         );
     }
 }

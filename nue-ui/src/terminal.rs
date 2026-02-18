@@ -7,6 +7,11 @@ use nue_core::terminal_session::{
     TerminalSession, TerminalSessionEvent, ToolExecutionConfig,
 };
 
+#[cfg(test)]
+use nue_core::terminal_session::{
+    QueueInterruptionReason, QueueRejectionReason, TerminalAuditEvent, TerminalAuditPayload,
+};
+
 /// ターミナルセッションを UI から操作するためのコントローラ。
 #[derive(Debug)]
 pub struct TerminalUiController {
@@ -140,11 +145,33 @@ mod tests {
                     state: TerminalCommandState::Running,
                     queue_length: 0,
                 }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 1,
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    payload: TerminalAuditPayload::QueueTransition {
+                        command_id: 1,
+                        agent_id: "agent-a".to_string(),
+                        command_line: "cargo test".to_string(),
+                        state: TerminalCommandState::Running,
+                        queue_length: 0,
+                    },
+                }),
                 TerminalSessionEvent::StatusChanged(TerminalStatusEvent {
                     workspace_session_id: "workspace-session-1".to_string(),
                     command_id: 2,
                     state: TerminalCommandState::Queued,
                     queue_length: 1,
+                }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 2,
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    payload: TerminalAuditPayload::QueueTransition {
+                        command_id: 2,
+                        agent_id: "agent-b".to_string(),
+                        command_line: "cargo clippy".to_string(),
+                        state: TerminalCommandState::Queued,
+                        queue_length: 1,
+                    },
                 }),
             ]
         );
@@ -172,12 +199,23 @@ mod tests {
         );
         assert_eq!(
             controller.drain_events(),
-            vec![TerminalSessionEvent::Notification(
-                TerminalNotificationEvent {
+            vec![
+                TerminalSessionEvent::Notification(TerminalNotificationEvent {
                     workspace_session_id: "workspace-session-1".to_string(),
                     message: expected_message,
-                }
-            )]
+                }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 4,
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    payload: TerminalAuditPayload::QueueRejected {
+                        reason: QueueRejectionReason::QueueFull {
+                            queue_max_pending: controller.queue_max_pending(),
+                            agent_id: "agent-d".to_string(),
+                            command_line: "cmd-4".to_string(),
+                        },
+                    },
+                }),
+            ]
         );
     }
 
@@ -214,6 +252,17 @@ mod tests {
                     state: TerminalCommandState::Completed,
                     queue_length: 1,
                 }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 3,
+                    workspace_session_id: "workspace-session-3".to_string(),
+                    payload: TerminalAuditPayload::QueueTransition {
+                        command_id: 1,
+                        agent_id: "agent-a".to_string(),
+                        command_line: "build".to_string(),
+                        state: TerminalCommandState::Completed,
+                        queue_length: 1,
+                    },
+                }),
                 TerminalSessionEvent::Notification(TerminalNotificationEvent {
                     workspace_session_id: "workspace-session-3".to_string(),
                     message: "run_command `build` (agent agent-a) が完了しました".to_string(),
@@ -223,6 +272,17 @@ mod tests {
                     command_id: 2,
                     state: TerminalCommandState::Running,
                     queue_length: 0,
+                }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 4,
+                    workspace_session_id: "workspace-session-3".to_string(),
+                    payload: TerminalAuditPayload::QueueTransition {
+                        command_id: 2,
+                        agent_id: "agent-b".to_string(),
+                        command_line: "fmt".to_string(),
+                        state: TerminalCommandState::Running,
+                        queue_length: 0,
+                    },
                 }),
             ]
         );
@@ -236,6 +296,27 @@ mod tests {
                     command_id: 2,
                     state: TerminalCommandState::Failed,
                     queue_length: 0,
+                }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 5,
+                    workspace_session_id: "workspace-session-3".to_string(),
+                    payload: TerminalAuditPayload::QueueTransition {
+                        command_id: 2,
+                        agent_id: "agent-b".to_string(),
+                        command_line: "fmt".to_string(),
+                        state: TerminalCommandState::Failed,
+                        queue_length: 0,
+                    },
+                }),
+                TerminalSessionEvent::Audit(TerminalAuditEvent {
+                    id: 6,
+                    workspace_session_id: "workspace-session-3".to_string(),
+                    payload: TerminalAuditPayload::QueueInterrupted {
+                        command_id: 2,
+                        agent_id: "agent-b".to_string(),
+                        command_line: "fmt".to_string(),
+                        reason: QueueInterruptionReason::Failed,
+                    },
                 }),
                 TerminalSessionEvent::Notification(TerminalNotificationEvent {
                     workspace_session_id: "workspace-session-3".to_string(),

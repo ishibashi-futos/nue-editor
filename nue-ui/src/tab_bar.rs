@@ -94,27 +94,37 @@ impl TabBarUiController {
         match action {
             TabAction::Pin(target) => {
                 let tab_id = self.resolve_target(target)?;
-                self.tab_manager.pin(&tab_id).map_err(TabActionError::from)?;
+                self.tab_manager
+                    .pin(&tab_id)
+                    .map_err(TabActionError::from)?;
                 Ok(TabActionEvent::Pinned { tab_id })
             }
             TabAction::Unpin(target) => {
                 let tab_id = self.resolve_target(target)?;
-                self.tab_manager.unpin(&tab_id).map_err(TabActionError::from)?;
+                self.tab_manager
+                    .unpin(&tab_id)
+                    .map_err(TabActionError::from)?;
                 Ok(TabActionEvent::Unpinned { tab_id })
             }
             TabAction::Close(target) => {
                 let tab_id = self.resolve_target(target)?;
-                self.tab_manager.close_tab(&tab_id).map_err(TabActionError::from)?;
+                self.tab_manager
+                    .close_tab(&tab_id)
+                    .map_err(TabActionError::from)?;
                 Ok(TabActionEvent::Closed { tab_id })
             }
             TabAction::CloseOthers(target) => {
                 let tab_id = self.resolve_target(target)?;
-                self.tab_manager.close_others(&tab_id).map_err(TabActionError::from)?;
+                self.tab_manager
+                    .close_others(&tab_id)
+                    .map_err(TabActionError::from)?;
                 Ok(TabActionEvent::ClosedOthers { tab_id })
             }
             TabAction::CloseToRight(target) => {
                 let tab_id = self.resolve_target(target)?;
-                self.tab_manager.close_to_right(&tab_id).map_err(TabActionError::from)?;
+                self.tab_manager
+                    .close_to_right(&tab_id)
+                    .map_err(TabActionError::from)?;
                 Ok(TabActionEvent::ClosedToRight { tab_id })
             }
             TabAction::ReopenClosed => {
@@ -126,8 +136,13 @@ impl TabBarUiController {
             }
             TabAction::Reorder { target, index } => {
                 let tab_id = self.resolve_target(target)?;
-                self.tab_manager.reorder(&tab_id, index).map_err(TabActionError::from)?;
-                Ok(TabActionEvent::Reordered { tab_id, new_index: index })
+                self.tab_manager
+                    .reorder(&tab_id, index)
+                    .map_err(TabActionError::from)?;
+                Ok(TabActionEvent::Reordered {
+                    tab_id,
+                    new_index: index,
+                })
             }
         }
     }
@@ -169,7 +184,10 @@ impl TabBarUiController {
         }
     }
 
-    fn handle_keyboard_reorder<F>(&mut self, next_index: F) -> Result<TabActionEvent, TabActionError>
+    fn handle_keyboard_reorder<F>(
+        &mut self,
+        next_index: F,
+    ) -> Result<TabActionEvent, TabActionError>
     where
         F: Fn(usize, usize) -> usize,
     {
@@ -248,13 +266,23 @@ mod tests {
         let event = controller
             .handle_keyboard_shortcut(TabKeyboardShortcut::PinToggle)
             .unwrap();
-        assert_eq!(event, TabActionEvent::Pinned { tab_id: "tab-1".into() });
+        assert_eq!(
+            event,
+            TabActionEvent::Pinned {
+                tab_id: "tab-1".into()
+            }
+        );
         assert!(controller.tabs()[0].pinned);
 
         let event = controller
             .handle_keyboard_shortcut(TabKeyboardShortcut::PinToggle)
             .unwrap();
-        assert_eq!(event, TabActionEvent::Unpinned { tab_id: "tab-1".into() });
+        assert_eq!(
+            event,
+            TabActionEvent::Unpinned {
+                tab_id: "tab-1".into()
+            }
+        );
         assert!(!controller.tabs()[0].pinned);
     }
 
@@ -288,10 +316,13 @@ mod tests {
             .unwrap();
         assert_eq!(controller.tabs().len(), 2);
 
-        let event = controller
-            .handle_action(TabAction::ReopenClosed)
-            .unwrap();
-        assert_eq!(event, TabActionEvent::Reopened { tab_id: "tab-3".into() });
+        let event = controller.handle_action(TabAction::ReopenClosed).unwrap();
+        assert_eq!(
+            event,
+            TabActionEvent::Reopened {
+                tab_id: "tab-3".into()
+            }
+        );
         assert_eq!(controller.tabs().len(), 3);
         assert_eq!(controller.active_tab_id().unwrap(), "tab-3");
     }
@@ -303,12 +334,24 @@ mod tests {
         let event = controller
             .handle_keyboard_shortcut(TabKeyboardShortcut::MoveRight)
             .unwrap();
-        assert_eq!(event, TabActionEvent::Reordered { tab_id: "tab-1".into(), new_index: 1 });
+        assert_eq!(
+            event,
+            TabActionEvent::Reordered {
+                tab_id: "tab-1".into(),
+                new_index: 1
+            }
+        );
 
         // Move left
         let event = controller
             .handle_keyboard_shortcut(TabKeyboardShortcut::MoveLeft)
             .unwrap();
-        assert_eq!(event, TabActionEvent::Reordered { tab_id: "tab-1".into(), new_index: 0 });
+        assert_eq!(
+            event,
+            TabActionEvent::Reordered {
+                tab_id: "tab-1".into(),
+                new_index: 0
+            }
+        );
     }
 }
