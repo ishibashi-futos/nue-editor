@@ -5,6 +5,32 @@ use crate::terminal_scrollback::{Scrollback, ScrollbackLine};
 pub type TerminalCommandId = u64;
 pub const DEFAULT_QUEUE_MAX_PENDING: usize = 4;
 
+/// `tool.execution.queue_max_pending` に対応する実行設定。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolExecutionConfig {
+    queue_max_pending: usize,
+}
+
+impl ToolExecutionConfig {
+    /// 指定した最大長で新しい設定を構築し、最小値 1 を保証する。
+    pub fn new(queue_max_pending: usize) -> Self {
+        Self {
+            queue_max_pending: queue_max_pending.max(1),
+        }
+    }
+
+    /// 現在のキュー最大数。
+    pub fn queue_max_pending(&self) -> usize {
+        self.queue_max_pending
+    }
+}
+
+impl Default for ToolExecutionConfig {
+    fn default() -> Self {
+        Self::new(DEFAULT_QUEUE_MAX_PENDING)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalCommandState {
     Queued,
@@ -56,7 +82,7 @@ pub enum QueueCommandOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalSession {
     workspace_session_id: String,
-    queue_max_pending: usize,
+    tool_execution_config: ToolExecutionConfig,
     next_command_id: TerminalCommandId,
     running_command_id: Option<TerminalCommandId>,
     queued_command_ids: VecDeque<TerminalCommandId>,
@@ -67,17 +93,26 @@ pub struct TerminalSession {
 
 impl TerminalSession {
     pub fn new(workspace_session_id: impl Into<String>) -> Self {
-        Self::new_with_queue_max_pending(workspace_session_id, DEFAULT_QUEUE_MAX_PENDING)
+        Self::new_with_tool_execution_config(workspace_session_id, ToolExecutionConfig::default())
     }
 
     pub fn new_with_queue_max_pending(
         workspace_session_id: impl Into<String>,
         queue_max_pending: usize,
     ) -> Self {
-        let queue_max_pending = queue_max_pending.max(1);
+        Self::new_with_tool_execution_config(
+            workspace_session_id,
+            ToolExecutionConfig::new(queue_max_pending),
+        )
+    }
+
+    pub fn new_with_tool_execution_config(
+        workspace_session_id: impl Into<String>,
+        tool_execution_config: ToolExecutionConfig,
+    ) -> Self {
         Self {
             workspace_session_id: workspace_session_id.into(),
-            queue_max_pending,
+            tool_execution_config,
             next_command_id: 1,
             running_command_id: None,
             queued_command_ids: VecDeque::new(),
@@ -87,15 +122,29 @@ impl TerminalSession {
         }
     }
 
+    /// キューの最大長。
+    pub fn queue_max_pending(&self) -> usize {
+        self.tool_execution_config.queue_max_pending()
+    }
+
+    /// 設定をそのまま取得。
+    pub fn tool_execution_config(&self) -> &ToolExecutionConfig {
+        &self.tool_execution_config
+    }
+
     pub fn enqueue_run_command(
         &mut self,
         agent_id: impl Into<String>,
         command_line: impl Into<String>,
     ) -> QueueCommandOutcome {
         if self.running_command_id.is_some()
-            && self.queued_command_ids.len() >= self.queue_max_pending
+            && self.queued_command_ids.len() >= self.queue_max_pending()
         {
-            self.push_notification("run_command キューが上限に達したため要求を拒否しました");
+            let queue_max = self.queue_max_pending();
+            self.push_notification(format!(
+                "run_command キューの上限({})に達したため実行を拒否しました。先行する run_command の完了を待つか中断してください。",
+                queue_max
+            ));
             return QueueCommandOutcome::RejectedQueueFull;
         }
 
@@ -376,12 +425,16 @@ mod tests {
 
         assert_eq!(result, QueueCommandOutcome::RejectedQueueFull);
         assert_eq!(session.queue_len(), 2);
+        let expected_message = format!(
+            "run_command キューの上限({})に達したため実行を拒否しました。先行する run_command の完了を待つか中断してください。",
+            session.queue_max_pending()
+        );
         assert_eq!(
             session.drain_events(),
             vec![TerminalSessionEvent::Notification(
                 TerminalNotificationEvent {
                     workspace_session_id: "workspace-session-1".to_string(),
-                    message: "run_command キューが上限に達したため要求を拒否しました".to_string(),
+                    message: expected_message,
                 }
             )]
         );
@@ -427,6 +480,17 @@ mod tests {
             session.enqueue_run_command("agent-f", "cmd-6"),
             QueueCommandOutcome::RejectedQueueFull
         );
+    }
+
+    #[test]
+    fn queue_max_pendingメソッドは設定値を返す() {
+        let session = TerminalSession::new_with_queue_max_pending("workspace-session-3", 3);
+        assert_eq!(session.queue_max_pending(), 3);
+    }
+
+    #[test]
+    fn tool_execution_configは最小1でクランプされる() {
+        assert_eq!(ToolExecutionConfig::new(0).queue_max_pending(), 1);
     }
 
     #[test]

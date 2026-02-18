@@ -60,6 +60,11 @@ impl TerminalUiController {
         self.session.queue_len()
     }
 
+    /// キュー上限。
+    pub fn queue_max_pending(&self) -> usize {
+        self.session.queue_max_pending()
+    }
+
     /// 直近に生成されたステータス/通知イベントを取り出す。
     pub fn drain_events(&mut self) -> Vec<TerminalSessionEvent> {
         self.session.drain_events()
@@ -142,12 +147,16 @@ mod tests {
         let result = controller.run_command("agent-d", "cmd-4");
 
         assert_eq!(result, QueueCommandOutcome::RejectedQueueFull);
+        let expected_message = format!(
+            "run_command キューの上限({})に達したため実行を拒否しました。先行する run_command の完了を待つか中断してください。",
+            controller.queue_max_pending(),
+        );
         assert_eq!(
             controller.drain_events(),
             vec![TerminalSessionEvent::Notification(
                 TerminalNotificationEvent {
                     workspace_session_id: "workspace-session-1".to_string(),
-                    message: "run_command キューが上限に達したため要求を拒否しました".to_string(),
+                    message: expected_message,
                 }
             )]
         );
