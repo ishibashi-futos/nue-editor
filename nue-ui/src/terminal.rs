@@ -1,4 +1,5 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
+use std::mem;
 use std::path::PathBuf;
 
 use nue_core::terminal_scrollback::ScrollbackLine;
@@ -100,7 +101,7 @@ fn describe_interruption(reason: &QueueInterruptionReason) -> &'static str {
 #[derive(Debug)]
 pub struct TerminalUiController {
     session: TerminalSession,
-    pending_audit_messages: VecDeque<TerminalAuditMessage>,
+    latest_audit_messages: Vec<TerminalAuditMessage>,
 }
 
 impl TerminalUiController {
@@ -115,7 +116,7 @@ impl TerminalUiController {
                 workspace_root,
                 BTreeMap::new(),
             ),
-            pending_audit_messages: VecDeque::new(),
+            latest_audit_messages: Vec::new(),
         }
     }
 
@@ -132,7 +133,7 @@ impl TerminalUiController {
                 workspace_root,
                 BTreeMap::new(),
             ),
-            pending_audit_messages: VecDeque::new(),
+            latest_audit_messages: Vec::new(),
         }
     }
 
@@ -174,18 +175,19 @@ impl TerminalUiController {
     /// 直近に生成されたステータス/通知イベントを取り出す。
     pub fn drain_events(&mut self) -> Vec<TerminalSessionEvent> {
         let events = self.session.drain_events();
-        for event in &events {
-            if let TerminalSessionEvent::Audit(audit) = event {
-                self.pending_audit_messages
-                    .push_back(TerminalAuditMessage::from_event(audit));
-            }
-        }
+        self.latest_audit_messages = events
+            .iter()
+            .filter_map(|event| match event {
+                TerminalSessionEvent::Audit(audit) => Some(TerminalAuditMessage::from_event(audit)),
+                _ => None,
+            })
+            .collect();
         events
     }
 
     /// 直近の監査イベントを UI 表示用に取得する。
     pub fn drain_audit_messages(&mut self) -> Vec<TerminalAuditMessage> {
-        self.pending_audit_messages.drain(..).collect()
+        mem::take(&mut self.latest_audit_messages)
     }
 
     /// 実行出力をスクロールバックに追加する。
@@ -536,6 +538,25 @@ mod tests {
         assert_eq!(
             audit_messages[1].summary,
             "run_command `cmd-1` (agent agent-z) は失敗により中断されました。"
+        );
+    }
+
+    #[test]
+    fn drain_eventsを繰り返しても監査メッセージが累積しない() {
+        let mut controller =
+            TerminalUiController::new("workspace-session-non-leak", "/workspace-session-non-leak");
+
+        controller.run_command("agent-a", "cmd-1");
+        controller.drain_events();
+
+        controller.complete_running_command(true);
+        controller.drain_events();
+        let audit_messages = controller.drain_audit_messages();
+
+        assert_eq!(audit_messages.len(), 1);
+        assert_eq!(
+            audit_messages[0].summary,
+            "run_command `cmd-1` (agent agent-a) が完了しました（キュー長：0）"
         );
     }
 }
