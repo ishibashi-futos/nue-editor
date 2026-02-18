@@ -172,4 +172,18 @@ mod tests {
         assert_eq!(cells, vec!['a', '\u{0301}']);
         assert_eq!(line.display_width(), 1);
     }
+
+    #[test]
+    fn zwj絵文字は表示幅2として切り詰め判定される() {
+        let mut scrollback = Scrollback::new(4);
+        scrollback.push_line("👨‍👩‍👧‍👦!");
+        let renderer = TerminalScrollbackRenderer::new(2, 4);
+
+        let rendered = renderer.render_from_scrollback(&scrollback);
+        assert_eq!(rendered.len(), 1);
+        let line = &rendered[0];
+        let cells: Vec<char> = line.cells().iter().map(|cell| cell.ch()).collect();
+        assert_eq!(line.display_width(), 2);
+        assert_eq!(cells, vec!['👨', '‍', '👩', '‍', '👧', '‍', '👦']);
+    }
 }

@@ -1,9 +1,12 @@
 use std::collections::VecDeque;
 
-use unicode_width::UnicodeWidthChar;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// スクロールバックの既定行数。
 pub const SCROLLBACK_DEFAULT_LINES: usize = 500;
+const TAB_STOP_COLUMNS: usize = 8;
+const ANSI_ESCAPE: char = '\u{1b}';
+const ZERO_WIDTH_JOINER: char = '\u{200d}';
 
 /// 1 行分の表示セル。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,8 +16,7 @@ pub struct LineCell {
 }
 
 impl LineCell {
-    fn new(ch: char) -> Self {
-        let width = UnicodeWidthChar::width(ch).unwrap_or(0);
+    fn new(ch: char, width: usize) -> Self {
         Self { ch, width }
     }
 
@@ -39,14 +41,10 @@ pub struct ScrollbackLine {
 
 impl ScrollbackLine {
     fn new(raw: String) -> Self {
+        let raw = strip_ansi_escape_sequences(&raw);
         let mut width = 0;
         let mut cells = Vec::new();
-
-        for ch in raw.chars() {
-            let cell = LineCell::new(ch);
-            width += cell.width();
-            cells.push(cell);
-        }
+        append_cells_from_text(&raw, &mut cells, &mut width);
 
         Self { raw, width, cells }
     }
@@ -84,11 +82,6 @@ impl Scrollback {
         }
     }
 
-    /// 既定の行数で初期化したスクロールバック。
-    pub fn default() -> Self {
-        Self::new(SCROLLBACK_DEFAULT_LINES)
-    }
-
     /// 新しい行を末尾に追加する。容量を超えたら先頭が破棄される。
     pub fn push_line(&mut self, raw: impl Into<String>) {
         if self.lines.len() >= self.max_lines {
@@ -122,6 +115,137 @@ impl Scrollback {
     /// 空かどうか。
     pub fn is_empty(&self) -> bool {
         self.lines.is_empty()
+    }
+}
+
+impl Default for Scrollback {
+    fn default() -> Self {
+        Self::new(SCROLLBACK_DEFAULT_LINES)
+    }
+}
+
+fn append_cells_from_text(raw: &str, cells: &mut Vec<LineCell>, width: &mut usize) {
+    let mut chars = raw.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\t' {
+            let tab_padding = tab_padding(*width);
+            for _ in 0..tab_padding {
+                cells.push(LineCell::new(' ', 1));
+            }
+            *width += tab_padding;
+            continue;
+        }
+
+        let mut cluster = String::new();
+        cluster.push(ch);
+        extend_grapheme_cluster(&mut chars, &mut cluster);
+        let cluster_width = UnicodeWidthStr::width(cluster.as_str());
+        append_cluster_cells(cells, &cluster, cluster_width);
+        *width += cluster_width;
+    }
+}
+
+fn append_cluster_cells(cells: &mut Vec<LineCell>, cluster: &str, cluster_width: usize) {
+    let mut cluster_chars = cluster.chars();
+    if let Some(first) = cluster_chars.next() {
+        cells.push(LineCell::new(first, cluster_width));
+    }
+
+    for ch in cluster_chars {
+        cells.push(LineCell::new(ch, 0));
+    }
+}
+
+fn extend_grapheme_cluster(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    cluster: &mut String,
+) {
+    loop {
+        let Some(&next) = chars.peek() else {
+            return;
+        };
+
+        if is_zero_width_extension(next) {
+            cluster.push(next);
+            chars.next();
+            continue;
+        }
+
+        if next != ZERO_WIDTH_JOINER {
+            return;
+        }
+
+        cluster.push(next);
+        chars.next();
+
+        let Some(joined) = chars.next() else {
+            return;
+        };
+        cluster.push(joined);
+    }
+}
+
+fn is_zero_width_extension(ch: char) -> bool {
+    UnicodeWidthChar::width(ch).unwrap_or(0) == 0
+        && !matches!(ch, '\n' | '\r' | '\t')
+        && ch != ZERO_WIDTH_JOINER
+}
+
+fn tab_padding(current_width: usize) -> usize {
+    let remainder = current_width % TAB_STOP_COLUMNS;
+    if remainder == 0 {
+        TAB_STOP_COLUMNS
+    } else {
+        TAB_STOP_COLUMNS - remainder
+    }
+}
+
+fn strip_ansi_escape_sequences(raw: &str) -> String {
+    let mut result = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch != ANSI_ESCAPE {
+            result.push(ch);
+            continue;
+        }
+
+        match chars.next() {
+            Some('[') => skip_csi_sequence(&mut chars),
+            Some(']') => skip_osc_sequence(&mut chars),
+            Some('P' | 'X' | '^' | '_') => skip_st_sequence(&mut chars),
+            Some(_) | None => {}
+        }
+    }
+
+    result
+}
+
+fn skip_csi_sequence(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    for ch in chars.by_ref() {
+        if ('\u{40}'..='\u{7e}').contains(&ch) {
+            return;
+        }
+    }
+}
+
+fn skip_osc_sequence(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    while let Some(ch) = chars.next() {
+        if ch == '\u{7}' {
+            return;
+        }
+        if ch == ANSI_ESCAPE && chars.next_if_eq(&'\\').is_some() {
+            return;
+        }
+    }
+}
+
+fn skip_st_sequence(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    while let Some(ch) = chars.next() {
+        if ch == ANSI_ESCAPE && chars.next_if_eq(&'\\').is_some() {
+            return;
+        }
     }
 }
 
@@ -163,5 +287,52 @@ mod tests {
 
         assert_eq!(scrollback.last_line().unwrap().width(), 0);
         assert_eq!(scrollback.last_line().unwrap().raw(), "");
+    }
+
+    #[test]
+    fn ansiエスケープシーケンスは除去される() {
+        let mut scrollback = Scrollback::default();
+
+        scrollback.push_line("\u{1b}[31merror\u{1b}[0m");
+
+        let line = scrollback.last_line().expect("行が存在するはず");
+        let chars: Vec<char> = line.cells().iter().map(|cell| cell.ch()).collect();
+        assert_eq!(line.raw(), "error");
+        assert_eq!(chars, vec!['e', 'r', 'r', 'o', 'r']);
+        assert_eq!(line.width(), 5);
+    }
+
+    #[test]
+    fn タブは次のタブストップまで空白展開される() {
+        let mut scrollback = Scrollback::default();
+
+        scrollback.push_line("a\tb");
+
+        let line = scrollback.last_line().expect("行が存在するはず");
+        let chars: Vec<char> = line.cells().iter().map(|cell| cell.ch()).collect();
+        let widths: Vec<usize> = line.cells().iter().map(|cell| cell.width()).collect();
+        assert_eq!(line.width(), 9);
+        assert_eq!(chars, vec!['a', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'b']);
+        assert_eq!(widths, vec![1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    }
+
+    #[test]
+    fn zwj絵文字は1つの表示幅として集計される() {
+        let mut scrollback = Scrollback::default();
+
+        scrollback.push_line("👨‍👩‍👧‍👦!");
+
+        let line = scrollback.last_line().expect("行が存在するはず");
+        assert_eq!(line.width(), 3);
+        let width_sum: usize = line.cells().iter().map(|cell| cell.width()).sum();
+        assert_eq!(width_sum, 3);
+        assert_eq!(line.cells()[0].width(), 2);
+        assert!(
+            line.cells()
+                .iter()
+                .skip(1)
+                .take(6)
+                .all(|cell| cell.width() == 0)
+        );
     }
 }
