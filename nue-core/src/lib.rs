@@ -18,6 +18,7 @@ pub mod session_state;
 pub mod smart_gutter_service;
 pub mod structure_path;
 pub mod tab_manager;
+pub mod terminal_scrollback;
 pub mod terminal_session;
 pub mod workspace_rail;
 pub mod workspace_registry;
