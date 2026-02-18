@@ -173,6 +173,31 @@ impl CommandHubActionModel {
         self.selected_text = selected_text;
     }
 
+    /// UI 側で最新のワークスペース一覧を反映する。
+    pub fn set_workspaces(&mut self, workspaces: Vec<WorkspaceItem>) {
+        self.workspaces = workspaces;
+    }
+
+    /// UI 側のペイン情報を再構築する。
+    pub fn set_panes(&mut self, panes: Vec<PaneItem>) {
+        self.pane_manager = PaneManager::from_items(panes);
+    }
+
+    /// UI 側のターミナル一覧を上書きする。
+    pub fn set_terminals(&mut self, terminals: Vec<TerminalItem>) {
+        self.terminals = terminals;
+    }
+
+    /// UI 側のタブ状態を再同期する。
+    pub fn set_tabs(&mut self, tabs: Vec<TabSnapshot>) {
+        self.sync_tabs(tabs);
+    }
+
+    /// UI 側でフォーカスパネルの状態を更新する。
+    pub fn set_focused_panel(&mut self, panel: Option<PanelTarget>) {
+        self.focused_panel = panel;
+    }
+
     pub fn workspaces(&self) -> &[WorkspaceItem] {
         &self.workspaces
     }

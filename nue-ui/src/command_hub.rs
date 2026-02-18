@@ -1,6 +1,11 @@
 use nue_core::command_hub_actions::{
-    CommandActionError, CommandActionEvent, CommandHubDispatchOutcome,
+    CommandActionError, CommandActionEvent, CommandHubActionModel, CommandHubDispatchOutcome,
+    PanelTarget, TerminalItem, WorkspaceItem, dispatch_cancel_action, dispatch_confirmed_action,
+    dispatch_selected_action,
 };
+use nue_core::command_hub::{parse_command, CommandHubSession, CommandHubSessionSnapshot, PickerSelectOutcome, PickerViewState};
+use nue_core::pane_manager::PaneItem;
+use nue_core::tab_manager::TabSnapshot;
 
 /// Command Hub の UI で必要なオーバーレイ操作を表現する。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -177,6 +182,101 @@ impl CommandHubUiState {
     }
 }
 
+/// UI 側の入力と Command Hub モデルを連携させるコントローラ。
+pub struct CommandHubUiController {
+    session: CommandHubSession,
+    action_model: CommandHubActionModel,
+    ui_state: CommandHubUiState,
+}
+
+impl CommandHubUiController {
+    /// 指定した ActionModel をもとに新しいコントローラを作成する。
+    pub fn new(action_model: CommandHubActionModel) -> Self {
+        Self {
+            session: CommandHubSession::new(),
+            action_model,
+            ui_state: CommandHubUiState::new(),
+        }
+    }
+
+    /// ユーザー入力を反映し、候補一覧を更新する。
+    pub fn apply_input(&mut self, input: impl Into<String>) {
+        let input = input.into();
+        let parsed = parse_command(&input);
+        let candidates = self.action_model.candidates_for(&parsed);
+        self.session.apply_input(input, candidates);
+    }
+
+    /// 次の候補をフォーカスする。
+    pub fn select_next(&mut self) -> PickerSelectOutcome {
+        self.session.select_next_candidate()
+    }
+
+    /// 前の候補をフォーカスする。
+    pub fn select_previous(&mut self) -> PickerSelectOutcome {
+        self.session.select_previous_candidate()
+    }
+
+    /// 選択された候補を実行し、UI 状態を更新する。
+    pub fn execute_selected(&mut self) -> CommandHubUiTransition {
+        let outcome = dispatch_selected_action(&mut self.session, &mut self.action_model);
+        self.ui_state.apply_outcome(outcome)
+    }
+
+    /// 確認状態の候補を確定し実行する。
+    pub fn confirm_selected(&mut self) -> CommandHubUiTransition {
+        let outcome = dispatch_confirmed_action(&mut self.session, &mut self.action_model);
+        self.ui_state.apply_outcome(outcome)
+    }
+
+    /// Picker をキャンセルする。
+    pub fn cancel_picker(&mut self) -> CommandHubUiTransition {
+        let outcome = dispatch_cancel_action(&mut self.session);
+        self.ui_state.apply_outcome(outcome)
+    }
+
+    /// 現在の Picker の状態を取得する。
+    pub fn picker_snapshot(&self) -> CommandHubSessionSnapshot {
+        self.session.snapshot()
+    }
+
+    /// UI に渡すべき状態を取得する。
+    pub fn ui_state(&self) -> CommandHubUiState {
+        self.ui_state.clone()
+    }
+
+    /// 現在の Workspaces を取得する。
+    pub fn workspaces(&self) -> &[WorkspaceItem] {
+        self.action_model.workspaces()
+    }
+
+    /// モデルの Workspaces を差し替える。
+    pub fn update_workspaces(&mut self, workspaces: Vec<WorkspaceItem>) {
+        self.action_model.set_workspaces(workspaces);
+    }
+
+    /// モデルの Pane 情報を差し替える。
+    pub fn update_panes(&mut self, panes: Vec<PaneItem>) {
+        self.action_model.set_panes(panes);
+    }
+
+    /// モデルの Terminal 情報を差し替える。
+    pub fn update_terminals(&mut self, terminals: Vec<TerminalItem>) {
+        self.action_model.set_terminals(terminals);
+    }
+
+    /// モデルの Tab 情報を差し替える。
+    pub fn update_tabs(&mut self, tabs: Vec<TabSnapshot>) {
+        self.action_model.set_tabs(tabs);
+    }
+
+    /// モデルのフォーカスパネル状態を更新する。
+    pub fn update_focused_panel(&mut self, panel: Option<PanelTarget>) {
+        self.action_model.set_focused_panel(panel);
+    }
+}
+
+
 fn message_for_error(error: &CommandActionError) -> String {
     match error {
         CommandActionError::UnsupportedCommand { domain, verb } => {
@@ -200,6 +300,101 @@ mod tests {
     use super::*;
     use nue_core::command_hub_actions::CommandActionEvent;
     use nue_core::command_hub_actions::{CommandActionError, CommandHubDispatchOutcome};
+
+    fn sample_action_model() -> CommandHubActionModel {
+        CommandHubActionModel::new(
+            vec![WorkspaceItem {
+                id: "workspace-1".to_string(),
+                display_name: "Nue".to_string(),
+                root_path: "/repo/nue".to_string(),
+                is_active: true,
+            }],
+            vec![PaneItem {
+                id: "pane-1".to_string(),
+                title: "README.md".to_string(),
+                is_active: true,
+            }],
+            vec![TerminalItem {
+                id: "terminal-1".to_string(),
+                title: "zsh".to_string(),
+                is_active: true,
+            }],
+            vec![TabSnapshot {
+                id: "tab-1".to_string(),
+                title: "README.md".to_string(),
+                pinned: false,
+                is_active: true,
+            }],
+        )
+    }
+
+    #[test]
+    fn controller_applies_input_and_exposes_candidates() {
+        let mut controller = CommandHubUiController::new(sample_action_model());
+        controller.apply_input("> workspace: remove workspace-1");
+
+        let snapshot = controller.picker_snapshot();
+        assert_eq!(snapshot.picker.state, PickerViewState::Listing);
+        assert_eq!(snapshot.picker.visible_candidates.len(), 1);
+        assert!(snapshot
+            .picker
+            .visible_candidates
+            .iter()
+            .any(|candidate| candidate.requires_confirmation));
+    }
+
+    #[test]
+    fn controller_handles_confirmation_flow() {
+        let mut controller = CommandHubUiController::new(sample_action_model());
+        controller.apply_input("> workspace: remove workspace-1");
+
+        let transition = controller.execute_selected();
+        assert_eq!(
+            transition.overlay_action,
+            CommandHubOverlayAction::NeedsConfirmation {
+                candidate_id: "workspace::workspace-1".into()
+            }
+        );
+        assert!(matches!(
+            controller.ui_state().overlay_state,
+            CommandHubOverlayState::Confirmation { .. }
+        ));
+
+        let confirm_transition = controller.confirm_selected();
+        assert_eq!(
+            confirm_transition.executed_event,
+            Some(CommandActionEvent::WorkspaceRemoved {
+                workspace_id: "workspace-1".to_string(),
+            })
+        );
+        assert_eq!(
+            confirm_transition.overlay_action,
+            CommandHubOverlayAction::CloseOverlay { candidate_id: None }
+        );
+        assert_eq!(controller.workspaces().len(), 0);
+    }
+
+    #[test]
+    fn controller_cancel_closes_picker_and_warns() {
+        let mut controller = CommandHubUiController::new(sample_action_model());
+        controller.apply_input("> workspace: list");
+
+        let transition = controller.cancel_picker();
+        match transition.overlay_action {
+            CommandHubOverlayAction::CloseOverlay { candidate_id } => {
+                assert_eq!(candidate_id, Some("workspace::workspace-1".into()));
+            }
+            _ => panic!("overlay_action が CloseOverlay ではない"),
+        }
+        assert_eq!(
+            controller.ui_state().overlay_state,
+            CommandHubOverlayState::Closed
+        );
+        assert_eq!(
+            controller.ui_state().notification.unwrap().level,
+            CommandHubNotificationLevel::Info
+        );
+    }
 
     #[test]
     fn closedはオーバーレイを閉じ通知する() {

@@ -74,7 +74,7 @@
 - [x] `EditorCoreEvent::Minimap*` / `EditorCoreEvent::SmartGutter*` を `nue-ui` で購読し、Minimap・Smart Gutter の描画、クリックジャンプ、Approval Request、Command Hub/Structure Path 同期を反映する。
 - [x] `WorkspaceRail` 実コンポーメントを `WorkspaceRegistry` に接続し、`drain_status_events` のライブ更新、右クリック除外、`WorkspacePathValidation` の文言マッピングを実装する。
 - [x] `DesignSystem` の `glass_style_for_surface` / `status_style_for` / `diff_style_for` / `OverlayZIndexManager::resolve` を実 UI（Command Hub/Workspace Rail/Structure Path/Smart Gutter/Minimap）へ適用する。
-- [ ] `CommandHubSession` と `CommandHubActionModel` を UI 入力と接続し、Action/Navigation 切替、Picker 実行、破壊的操作確認フローを `nue-ui` 側で完結させる。
+- [x] `CommandHubSession` と `CommandHubActionModel` を UI 入力と接続し、Action/Navigation 切替、Picker 実行、破壊的操作確認フローを `nue-ui` 側で完結させる。
 - [x] `CommandHubDispatchOutcome`（`Closed` / `BackToListing` / `Failed` / `Canceled` 相当）を UI 状態遷移と通知表示へ明示マッピングする。
 - [ ] `CommandHubActionModel` の実行結果を Workspace/Pane/Terminal の実体状態更新へ接続し、モデル内完結から上位レイヤー連携へ置き換える。
 - [x] `EditorCore` 公開型の `PathBuf` を UI 表示へ変換する文字列化ポリシー（非UTF-8時の扱い含む）を仕様化し、上位層で統一適用する。
