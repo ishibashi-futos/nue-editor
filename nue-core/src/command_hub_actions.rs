@@ -6,6 +6,7 @@ use crate::{
     pane_manager::{PaneItem, PaneManager, PaneManagerError, PaneSplitDirection},
     tab_manager::{DEFAULT_HISTORY_CAPACITY, TabManager, TabManagerError, TabSnapshot},
 };
+use std::{cell::RefCell, rc::Rc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelTarget {
@@ -101,14 +102,79 @@ pub enum CommandActionEvent {
 /// 上位レイヤに CommandHub の実行結果を伝える受け口。
 pub trait CommandHubStateSink: 'static {
     /// モデルがコマンドを実行した際に呼び出される。
-    fn handle_event(&mut self, event: &CommandActionEvent);
+    fn handle_event(&mut self, event: &CommandActionEvent, snapshot: &CommandHubStateSnapshot);
 }
 
 /// デフォルトでは何もしない Sink。
 pub struct NoopCommandHubStateSink;
 
 impl CommandHubStateSink for NoopCommandHubStateSink {
-    fn handle_event(&mut self, _event: &CommandActionEvent) {}
+    fn handle_event(&mut self, _event: &CommandActionEvent, _snapshot: &CommandHubStateSnapshot) {}
+}
+
+/// モデルの状態を切り出したスナップショット。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandHubStateSnapshot {
+    pub workspaces: Vec<WorkspaceItem>,
+    pub panes: Vec<PaneItem>,
+    pub terminals: Vec<TerminalItem>,
+    pub tabs: Vec<TabSnapshot>,
+    pub focused_panel: Option<PanelTarget>,
+}
+
+impl CommandHubStateSnapshot {
+    fn from_model(model: &CommandHubActionModel) -> Self {
+        Self {
+            workspaces: model.workspaces().to_vec(),
+            panes: model.panes(),
+            terminals: model.terminals().to_vec(),
+            tabs: model.tabs(),
+            focused_panel: model.focused_panel(),
+        }
+    }
+}
+
+/// CommandHub の実行結果を反映する共有状態。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CommandHubStateStore {
+    pub workspaces: Vec<WorkspaceItem>,
+    pub panes: Vec<PaneItem>,
+    pub terminals: Vec<TerminalItem>,
+    pub tabs: Vec<TabSnapshot>,
+    pub focused_panel: Option<PanelTarget>,
+}
+
+impl CommandHubStateStore {
+    /// 新しい空の状態を作成する。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// スナップショットの内容でストアを更新する。
+    pub fn sync_from_snapshot(&mut self, snapshot: &CommandHubStateSnapshot) {
+        self.workspaces = snapshot.workspaces.clone();
+        self.panes = snapshot.panes.clone();
+        self.terminals = snapshot.terminals.clone();
+        self.tabs = snapshot.tabs.clone();
+        self.focused_panel = snapshot.focused_panel;
+    }
+}
+
+/// 共有状態を更新するための Sink。
+pub struct CommandHubStateStoreSink {
+    store: Rc<RefCell<CommandHubStateStore>>,
+}
+
+impl CommandHubStateStoreSink {
+    pub fn new(store: Rc<RefCell<CommandHubStateStore>>) -> Self {
+        Self { store }
+    }
+}
+
+impl CommandHubStateSink for CommandHubStateStoreSink {
+    fn handle_event(&mut self, _event: &CommandActionEvent, snapshot: &CommandHubStateSnapshot) {
+        self.store.borrow_mut().sync_from_snapshot(snapshot);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -352,7 +418,8 @@ impl CommandHubActionModel {
         };
 
         if let CommandActionOutcome::Executed(ref event) = outcome {
-            self.state_sink.handle_event(event);
+            let snapshot = CommandHubStateSnapshot::from_model(self);
+            self.state_sink.handle_event(event, &snapshot);
         }
 
         outcome
@@ -1205,7 +1272,11 @@ mod tests {
     }
 
     impl CommandHubStateSink for RecordingSink {
-        fn handle_event(&mut self, event: &CommandActionEvent) {
+        fn handle_event(
+            &mut self,
+            event: &CommandActionEvent,
+            _snapshot: &CommandHubStateSnapshot,
+        ) {
             self.events.borrow_mut().push(event.clone());
         }
     }
@@ -1327,6 +1398,33 @@ mod tests {
                 pane_id: "pane-2".to_string()
             }
         );
+    }
+
+    #[test]
+    fn state_store_sink_reflects_model_state() {
+        let store = Rc::new(RefCell::new(CommandHubStateStore::new()));
+        let mut model = model();
+        model.set_state_sink(Box::new(CommandHubStateStoreSink::new(store.clone())));
+
+        let _ = model.execute(&action_command("pane", "close", "pane-2"));
+        {
+            let snapshot = store.borrow();
+            assert_eq!(snapshot.panes.len(), 1);
+            assert_eq!(snapshot.panes[0].id, "pane-1");
+        }
+
+        let _ = model.execute(&action_command("panel", "focus", "global search"));
+        {
+            let snapshot = store.borrow();
+            assert_eq!(snapshot.focused_panel, Some(PanelTarget::GlobalSearch));
+        }
+
+        let _ = model.execute(&action_command("terminal", "new", ""));
+        {
+            let snapshot = store.borrow();
+            assert_eq!(snapshot.terminals.len(), 2);
+            assert!(snapshot.terminals.iter().any(|terminal| terminal.is_active));
+        }
     }
 
     #[test]
