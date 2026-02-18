@@ -1,4 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::env;
+use std::fmt;
+use std::path::{Component, Path, PathBuf};
 
 use crate::terminal_scrollback::{Scrollback, ScrollbackLine};
 
@@ -6,7 +9,7 @@ pub type TerminalCommandId = u64;
 pub const DEFAULT_QUEUE_MAX_PENDING: usize = 4;
 
 /// `tool.execution.queue_max_pending` に対応する実行設定。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToolExecutionConfig {
     queue_max_pending: usize,
 }
@@ -28,6 +31,83 @@ impl ToolExecutionConfig {
 impl Default for ToolExecutionConfig {
     fn default() -> Self {
         Self::new(DEFAULT_QUEUE_MAX_PENDING)
+    }
+}
+
+/// `run_command` を enqueued する際の追加情報。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunCommandRequest {
+    pub agent_id: String,
+    pub command_line: String,
+    pub cwd: Option<PathBuf>,
+    pub env_overrides: BTreeMap<String, String>,
+}
+
+impl RunCommandRequest {
+    pub fn new(agent_id: impl Into<String>, command_line: impl Into<String>) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            command_line: command_line.into(),
+            cwd: None,
+            env_overrides: BTreeMap::new(),
+        }
+    }
+
+    pub fn with_cwd(mut self, cwd: impl Into<PathBuf>) -> Self {
+        self.cwd = Some(cwd.into());
+        self
+    }
+
+    pub fn with_env_override(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env_overrides.insert(key.into(), value.into());
+        self
+    }
+}
+
+/// `run_command` の `workspace_env` / `cwd` 検証に失敗した理由。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunCommandContextError {
+    InvalidCwd {
+        attempted: PathBuf,
+        workspace_root: PathBuf,
+    },
+    UnauthorizedEnvAddition {
+        key: String,
+    },
+    UnauthorizedEnvModification {
+        key: String,
+        expected: String,
+        attempted: String,
+    },
+}
+
+impl fmt::Display for RunCommandContextError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RunCommandContextError::InvalidCwd {
+                attempted,
+                workspace_root,
+            } => write!(
+                f,
+                "CWD `{}` は workspace_root `{}` に固定されているため拒否されました。",
+                attempted.display(),
+                workspace_root.display()
+            ),
+            RunCommandContextError::UnauthorizedEnvAddition { key } => write!(
+                f,
+                "workspace_env に含まれない環境変数 `{}` の追加は許可されていません。",
+                key
+            ),
+            RunCommandContextError::UnauthorizedEnvModification {
+                key,
+                expected,
+                attempted,
+            } => write!(
+                f,
+                "環境変数 `{}` は `{}` で固定されており `{}` への上書きは許可されていません。",
+                key, expected, attempted
+            ),
+        }
     }
 }
 
@@ -67,7 +147,7 @@ pub enum TerminalSessionEvent {
     Notification(TerminalNotificationEvent),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueueCommandOutcome {
     Started {
         command_id: TerminalCommandId,
@@ -77,11 +157,16 @@ pub enum QueueCommandOutcome {
         position: usize,
     },
     RejectedQueueFull,
+    RejectedContextViolation {
+        error: RunCommandContextError,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalSession {
     workspace_session_id: String,
+    workspace_root: PathBuf,
+    workspace_env: BTreeMap<String, String>,
     tool_execution_config: ToolExecutionConfig,
     next_command_id: TerminalCommandId,
     running_command_id: Option<TerminalCommandId>,
@@ -93,7 +178,11 @@ pub struct TerminalSession {
 
 impl TerminalSession {
     pub fn new(workspace_session_id: impl Into<String>) -> Self {
-        Self::new_with_tool_execution_config(workspace_session_id, ToolExecutionConfig::default())
+        Self::new_with_workspace_context(
+            workspace_session_id,
+            Self::default_workspace_root(),
+            BTreeMap::new(),
+        )
     }
 
     pub fn new_with_queue_max_pending(
@@ -103,15 +192,38 @@ impl TerminalSession {
         Self::new_with_tool_execution_config(
             workspace_session_id,
             ToolExecutionConfig::new(queue_max_pending),
+            Self::default_workspace_root(),
+            BTreeMap::new(),
+        )
+    }
+
+    pub fn new_with_workspace_context(
+        workspace_session_id: impl Into<String>,
+        workspace_root: impl Into<PathBuf>,
+        workspace_env: BTreeMap<String, String>,
+    ) -> Self {
+        Self::new_with_tool_execution_config(
+            workspace_session_id,
+            ToolExecutionConfig::default(),
+            workspace_root,
+            workspace_env,
         )
     }
 
     pub fn new_with_tool_execution_config(
         workspace_session_id: impl Into<String>,
         tool_execution_config: ToolExecutionConfig,
+        workspace_root: impl Into<PathBuf>,
+        workspace_env: BTreeMap<String, String>,
     ) -> Self {
+        let workspace_path = workspace_root.into();
+        let normalized_root =
+            Self::normalize_path(&workspace_path).unwrap_or_else(|| workspace_path.clone());
+
         Self {
             workspace_session_id: workspace_session_id.into(),
+            workspace_root: normalized_root,
+            workspace_env,
             tool_execution_config,
             next_command_id: 1,
             running_command_id: None,
@@ -120,6 +232,10 @@ impl TerminalSession {
             events: VecDeque::new(),
             scrollback: Scrollback::default(),
         }
+    }
+
+    fn default_workspace_root() -> PathBuf {
+        env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
     }
 
     /// キューの最大長。
@@ -132,11 +248,13 @@ impl TerminalSession {
         &self.tool_execution_config
     }
 
-    pub fn enqueue_run_command(
-        &mut self,
-        agent_id: impl Into<String>,
-        command_line: impl Into<String>,
-    ) -> QueueCommandOutcome {
+    pub fn enqueue_run_command(&mut self, request: RunCommandRequest) -> QueueCommandOutcome {
+        if let Err(error) = self.validate_run_command_context(&request) {
+            let message = format!("run_command を拒否しました: {}", error);
+            self.push_notification(message);
+            return QueueCommandOutcome::RejectedContextViolation { error };
+        }
+
         if self.running_command_id.is_some()
             && self.queued_command_ids.len() >= self.queue_max_pending()
         {
@@ -148,13 +266,19 @@ impl TerminalSession {
             return QueueCommandOutcome::RejectedQueueFull;
         }
 
+        let RunCommandRequest {
+            agent_id,
+            command_line,
+            ..
+        } = request;
+
         let command_id = self.allocate_command_id();
         self.commands.insert(
             command_id,
             TerminalCommandSnapshot {
                 id: command_id,
-                agent_id: agent_id.into(),
-                command_line: command_line.into(),
+                agent_id,
+                command_line,
                 state: TerminalCommandState::Queued,
             },
         );
@@ -288,9 +412,95 @@ impl TerminalSession {
         ));
     }
 
+    fn normalize_path(path: &Path) -> Option<PathBuf> {
+        let mut normalized = PathBuf::new();
+        let mut normal_segments = 0;
+
+        for component in path.components() {
+            match component {
+                Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+                Component::RootDir => normalized.push(component.as_os_str()),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if normal_segments == 0 {
+                        return None;
+                    }
+                    normalized.pop();
+                    normal_segments -= 1;
+                }
+                Component::Normal(part) => {
+                    normalized.push(part);
+                    normal_segments += 1;
+                }
+            }
+        }
+
+        Some(normalized)
+    }
+
+    fn validate_run_command_context(
+        &self,
+        request: &RunCommandRequest,
+    ) -> Result<(), RunCommandContextError> {
+        if let Some(cwd) = &request.cwd {
+            if cwd
+                .components()
+                .any(|component| matches!(component, Component::ParentDir))
+            {
+                return Err(RunCommandContextError::InvalidCwd {
+                    attempted: cwd.clone(),
+                    workspace_root: self.workspace_root.clone(),
+                });
+            }
+
+            let normalized =
+                Self::normalize_path(cwd).ok_or_else(|| RunCommandContextError::InvalidCwd {
+                    attempted: cwd.clone(),
+                    workspace_root: self.workspace_root.clone(),
+                })?;
+
+            if normalized != self.workspace_root {
+                return Err(RunCommandContextError::InvalidCwd {
+                    attempted: cwd.clone(),
+                    workspace_root: self.workspace_root.clone(),
+                });
+            }
+        }
+
+        for (key, value) in request.env_overrides.iter() {
+            match self.workspace_env.get(key) {
+                None => {
+                    return Err(RunCommandContextError::UnauthorizedEnvAddition {
+                        key: key.clone(),
+                    });
+                }
+                Some(expected) if expected != value => {
+                    return Err(RunCommandContextError::UnauthorizedEnvModification {
+                        key: key.clone(),
+                        expected: expected.clone(),
+                        attempted: value.clone(),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
     /// 紐づくワークスペースセッションの識別子。
     pub fn workspace_session_id(&self) -> &str {
         &self.workspace_session_id
+    }
+
+    /// 紐づくワークスペースルート。
+    pub fn workspace_root(&self) -> &Path {
+        &self.workspace_root
+    }
+
+    /// ワークスペース環境変数設定。
+    pub fn workspace_env(&self) -> &BTreeMap<String, String> {
+        &self.workspace_env
     }
 }
 
@@ -306,8 +516,8 @@ mod tests {
     fn run_command受付時にrunningとqueuedを振り分ける() {
         let mut session = test_session();
 
-        let first = session.enqueue_run_command("agent-a", "cargo test");
-        let second = session.enqueue_run_command("agent-b", "cargo clippy");
+        let first = session.enqueue_run_command(RunCommandRequest::new("agent-a", "cargo test"));
+        let second = session.enqueue_run_command(RunCommandRequest::new("agent-b", "cargo clippy"));
 
         assert_eq!(first, QueueCommandOutcome::Started { command_id: 1 });
         assert_eq!(
@@ -344,8 +554,8 @@ mod tests {
     fn 完了時に次のqueuedがrunningへ昇格しイベントが流れる() {
         let mut session = test_session();
 
-        session.enqueue_run_command("agent-a", "cargo test");
-        session.enqueue_run_command("agent-b", "cargo clippy");
+        session.enqueue_run_command(RunCommandRequest::new("agent-a", "cargo test"));
+        session.enqueue_run_command(RunCommandRequest::new("agent-b", "cargo clippy"));
         session.drain_events();
 
         let completed = session.complete_running_command(true);
@@ -384,7 +594,7 @@ mod tests {
     fn 失敗時はfailedイベントが流れる() {
         let mut session = test_session();
 
-        session.enqueue_run_command("agent-a", "cargo test");
+        session.enqueue_run_command(RunCommandRequest::new("agent-a", "cargo test"));
         session.drain_events();
 
         let completed = session.complete_running_command(false);
@@ -416,12 +626,12 @@ mod tests {
     fn キュー上限超過時は拒否と通知イベントを返す() {
         let mut session = test_session();
 
-        session.enqueue_run_command("agent-a", "cmd-1");
-        session.enqueue_run_command("agent-b", "cmd-2");
-        session.enqueue_run_command("agent-c", "cmd-3");
+        session.enqueue_run_command(RunCommandRequest::new("agent-a", "cmd-1"));
+        session.enqueue_run_command(RunCommandRequest::new("agent-b", "cmd-2"));
+        session.enqueue_run_command(RunCommandRequest::new("agent-c", "cmd-3"));
         session.drain_events();
 
-        let result = session.enqueue_run_command("agent-d", "cmd-4");
+        let result = session.enqueue_run_command(RunCommandRequest::new("agent-d", "cmd-4"));
 
         assert_eq!(result, QueueCommandOutcome::RejectedQueueFull);
         assert_eq!(session.queue_len(), 2);
@@ -445,39 +655,39 @@ mod tests {
         let mut session = TerminalSession::new("workspace-session-1");
 
         assert_eq!(
-            session.enqueue_run_command("agent-a", "cmd-1"),
+            session.enqueue_run_command(RunCommandRequest::new("agent-a", "cmd-1")),
             QueueCommandOutcome::Started { command_id: 1 }
         );
         assert_eq!(
-            session.enqueue_run_command("agent-b", "cmd-2"),
+            session.enqueue_run_command(RunCommandRequest::new("agent-b", "cmd-2")),
             QueueCommandOutcome::Queued {
                 command_id: 2,
                 position: 1
             }
         );
         assert_eq!(
-            session.enqueue_run_command("agent-c", "cmd-3"),
+            session.enqueue_run_command(RunCommandRequest::new("agent-c", "cmd-3")),
             QueueCommandOutcome::Queued {
                 command_id: 3,
                 position: 2
             }
         );
         assert_eq!(
-            session.enqueue_run_command("agent-d", "cmd-4"),
+            session.enqueue_run_command(RunCommandRequest::new("agent-d", "cmd-4")),
             QueueCommandOutcome::Queued {
                 command_id: 4,
                 position: 3
             }
         );
         assert_eq!(
-            session.enqueue_run_command("agent-e", "cmd-5"),
+            session.enqueue_run_command(RunCommandRequest::new("agent-e", "cmd-5")),
             QueueCommandOutcome::Queued {
                 command_id: 5,
                 position: 4
             }
         );
         assert_eq!(
-            session.enqueue_run_command("agent-f", "cmd-6"),
+            session.enqueue_run_command(RunCommandRequest::new("agent-f", "cmd-6")),
             QueueCommandOutcome::RejectedQueueFull
         );
     }
@@ -515,5 +725,104 @@ mod tests {
         let session = TerminalSession::new("workspace-session-2");
         assert!(session.last_scrollback_line().is_none());
         assert_eq!(session.scrollback_len(), 0);
+    }
+
+    #[test]
+    fn cwdがworkspace_rootでないと拒否される() {
+        let mut session = TerminalSession::new_with_workspace_context(
+            "workspace-session-env",
+            "/workspace-root",
+            BTreeMap::new(),
+        );
+
+        let request = RunCommandRequest::new("agent-d", "cmd").with_cwd("/other");
+        let expected_error = RunCommandContextError::InvalidCwd {
+            attempted: PathBuf::from("/other"),
+            workspace_root: PathBuf::from("/workspace-root"),
+        };
+
+        assert_eq!(
+            session.enqueue_run_command(request),
+            QueueCommandOutcome::RejectedContextViolation {
+                error: expected_error.clone()
+            }
+        );
+        assert_eq!(session.queue_len(), 0);
+        assert_eq!(
+            session.drain_events(),
+            vec![TerminalSessionEvent::Notification(
+                TerminalNotificationEvent {
+                    workspace_session_id: "workspace-session-env".to_string(),
+                    message: format!("run_command を拒否しました: {}", expected_error),
+                }
+            )]
+        );
+    }
+
+    #[test]
+    fn workspace_envにない変数の追加は拒否される() {
+        let mut session = TerminalSession::new_with_workspace_context(
+            "workspace-session-env",
+            "/workspace-root",
+            BTreeMap::new(),
+        );
+
+        let request = RunCommandRequest::new("agent-x", "cmd").with_env_override("UNSAFE", "1");
+        let expected_error = RunCommandContextError::UnauthorizedEnvAddition {
+            key: "UNSAFE".to_string(),
+        };
+
+        assert_eq!(
+            session.enqueue_run_command(request),
+            QueueCommandOutcome::RejectedContextViolation {
+                error: expected_error.clone()
+            }
+        );
+        assert_eq!(session.queue_len(), 0);
+        assert_eq!(
+            session.drain_events(),
+            vec![TerminalSessionEvent::Notification(
+                TerminalNotificationEvent {
+                    workspace_session_id: "workspace-session-env".to_string(),
+                    message: format!("run_command を拒否しました: {}", expected_error),
+                }
+            )]
+        );
+    }
+
+    #[test]
+    fn workspace_envの既存値を上書きする操作も拒否される() {
+        let mut workspace_env = BTreeMap::new();
+        workspace_env.insert("SAFE".to_string(), "ALLOWED".to_string());
+
+        let mut session = TerminalSession::new_with_workspace_context(
+            "workspace-session-env",
+            "/workspace-root",
+            workspace_env,
+        );
+
+        let request = RunCommandRequest::new("agent-y", "cmd").with_env_override("SAFE", "DENIED");
+        let expected_error = RunCommandContextError::UnauthorizedEnvModification {
+            key: "SAFE".to_string(),
+            expected: "ALLOWED".to_string(),
+            attempted: "DENIED".to_string(),
+        };
+
+        assert_eq!(
+            session.enqueue_run_command(request),
+            QueueCommandOutcome::RejectedContextViolation {
+                error: expected_error.clone()
+            }
+        );
+        assert_eq!(session.queue_len(), 0);
+        assert_eq!(
+            session.drain_events(),
+            vec![TerminalSessionEvent::Notification(
+                TerminalNotificationEvent {
+                    workspace_session_id: "workspace-session-env".to_string(),
+                    message: format!("run_command を拒否しました: {}", expected_error),
+                }
+            )]
+        );
     }
 }

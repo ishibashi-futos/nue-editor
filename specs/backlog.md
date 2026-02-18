@@ -48,7 +48,7 @@
 - [x] TM-1: Terminal セッション起動 UI と `PTY` 管理を実装し、Workspace Session に紐づく run_command を PTY で実行。
 - [x] TM-2: スクロールバック（500行以上）と Unicode/全角対応のレンダリングコンポーネントを整備。
 - [x] TM-3: 同一 Workspace Session 内のコマンドキュー (Running/Queued/Completed/Failed) を FIFO で制御し、`tool.execution.queue_max_pending` 超過時に拒否・UI通知。
-- [ ] TM-4: 環境変数注入の制御 (workspace_env、未許可の追加禁止) と CWD 固定化。
+- [x] TM-4: 環境変数注入の制御 (workspace_env、未許可の追加禁止) と CWD 固定化。
 - [x] TM-5: run_command の結果と通知を連動させ、ターミナル UI 上のステータスを同期。
 - [ ] TM-6: キュー遷移/拒否/中断を Audit Event として記録し、Terminal UI の表示に反映。
 

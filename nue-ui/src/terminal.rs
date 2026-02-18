@@ -1,7 +1,10 @@
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
 use nue_core::terminal_scrollback::ScrollbackLine;
 use nue_core::terminal_session::{
-    QueueCommandOutcome, TerminalCommandId, TerminalCommandSnapshot, TerminalSession,
-    TerminalSessionEvent,
+    QueueCommandOutcome, RunCommandRequest, TerminalCommandId, TerminalCommandSnapshot,
+    TerminalSession, TerminalSessionEvent, ToolExecutionConfig,
 };
 
 /// ターミナルセッションを UI から操作するためのコントローラ。
@@ -12,21 +15,31 @@ pub struct TerminalUiController {
 
 impl TerminalUiController {
     /// デフォルトのキューサイズで新しいコントローラを作る。
-    pub fn new(workspace_session_id: impl Into<String>) -> Self {
+    pub fn new(
+        workspace_session_id: impl Into<String>,
+        workspace_root: impl Into<PathBuf>,
+    ) -> Self {
         Self {
-            session: TerminalSession::new(workspace_session_id),
+            session: TerminalSession::new_with_workspace_context(
+                workspace_session_id,
+                workspace_root,
+                BTreeMap::new(),
+            ),
         }
     }
 
     /// キューの最大長を指定したバリアント。
     pub fn with_queue_max_pending(
         workspace_session_id: impl Into<String>,
+        workspace_root: impl Into<PathBuf>,
         queue_max_pending: usize,
     ) -> Self {
         Self {
-            session: TerminalSession::new_with_queue_max_pending(
+            session: TerminalSession::new_with_tool_execution_config(
                 workspace_session_id,
-                queue_max_pending,
+                ToolExecutionConfig::new(queue_max_pending),
+                workspace_root,
+                BTreeMap::new(),
             ),
         }
     }
@@ -42,7 +55,8 @@ impl TerminalUiController {
         agent_id: impl Into<String>,
         command_line: impl Into<String>,
     ) -> QueueCommandOutcome {
-        self.session.enqueue_run_command(agent_id, command_line)
+        let request = RunCommandRequest::new(agent_id, command_line);
+        self.session.enqueue_run_command(request)
     }
 
     /// 実行中のコマンドを完了させ、次のコマンドを昇格させる。
@@ -100,7 +114,8 @@ mod tests {
 
     #[test]
     fn run_commandの状態がイベントに含まれる() {
-        let mut controller = TerminalUiController::new("workspace-session-1");
+        let mut controller =
+            TerminalUiController::new("workspace-session-1", "/workspace-session-1");
 
         let first = controller.run_command("agent-a", "cargo test");
         let second = controller.run_command("agent-b", "cargo clippy");
@@ -137,7 +152,11 @@ mod tests {
 
     #[test]
     fn キュー上限超過で通知イベントを生成する() {
-        let mut controller = TerminalUiController::with_queue_max_pending("workspace-session-1", 2);
+        let mut controller = TerminalUiController::with_queue_max_pending(
+            "workspace-session-1",
+            "/workspace-session-1",
+            2,
+        );
 
         controller.run_command("agent-a", "cmd-1");
         controller.run_command("agent-b", "cmd-2");
@@ -164,7 +183,8 @@ mod tests {
 
     #[test]
     fn 連続完了でキューから昇格する() {
-        let mut controller = TerminalUiController::new("workspace-session-2");
+        let mut controller =
+            TerminalUiController::new("workspace-session-2", "/workspace-session-2");
         controller.run_command("agent-a", "cmd-1");
         controller.run_command("agent-b", "cmd-2");
         controller.drain_events();
@@ -178,7 +198,8 @@ mod tests {
 
     #[test]
     fn complete_running_command_generates_notifications() {
-        let mut controller = TerminalUiController::new("workspace-session-3");
+        let mut controller =
+            TerminalUiController::new("workspace-session-3", "/workspace-session-3");
         controller.run_command("agent-a", "build");
         controller.run_command("agent-b", "fmt");
         controller.drain_events();
@@ -226,7 +247,8 @@ mod tests {
 
     #[test]
     fn scrollback_lines_are_exposed() {
-        let mut controller = TerminalUiController::new("workspace-session-1");
+        let mut controller =
+            TerminalUiController::new("workspace-session-1", "/workspace-session-1");
 
         controller.push_output_line("first");
         controller.push_output_line("次の行");
