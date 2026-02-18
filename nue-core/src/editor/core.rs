@@ -1,13 +1,19 @@
-use crate::editor::core_support::{
-    char_to_byte_index, default_shortcut_bindings, line_to_char_index,
-};
+#[path = "core_buffer.rs"]
+mod core_buffer;
+#[path = "core_commands.rs"]
+mod core_commands;
+#[path = "core_events.rs"]
+mod core_events;
+
+use self::core_buffer::EditorBuffer;
+use crate::editor::core_support::{char_to_byte_index, line_to_char_index};
 use crate::editor::markdown::{
     MarkdownDiffObservedEvent, MarkdownFeature, MarkdownFeatureRequestedEvent, MarkdownHeading,
-    MarkdownPreviewSyncedEvent, MarkdownService, MarkdownServiceEvent,
+    MarkdownPreviewSyncedEvent, MarkdownService,
 };
 use crate::editor::minimap::{
     MinimapFocusIdSyncedEvent, MinimapOverlay, MinimapOverlaysUpdatedEvent, MinimapService,
-    MinimapServiceEvent, MinimapSnapshot,
+    MinimapSnapshot,
 };
 use crate::editor::smart_gutter::{
     OpenApprovalRequestError, SmartGutterApprovalRequestOpenedEvent, SmartGutterFocusIdSyncedEvent,
@@ -18,7 +24,7 @@ use crate::search::navigator::SearchNavigator;
 use crate::search::service::{SearchError, SearchMatch, SearchQuery, SearchService};
 use crate::shared::path_display::PathDisplayExt;
 use std::collections::{HashMap, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum KeyModifier {
@@ -609,68 +615,6 @@ impl EditorCore {
         MarkSavedOutcome::Saved { revision }
     }
 
-    pub fn register_shortcut(
-        &mut self,
-        chord: KeyChord,
-        command: EditorCommand,
-    ) -> RegisterShortcutOutcome {
-        let previous = self.shortcuts.insert(chord.clone(), command);
-        self.events.push_back(EditorCoreEvent::ShortcutRegistered(
-            ShortcutRegisteredEvent { chord, command },
-        ));
-
-        if previous.is_some() {
-            RegisterShortcutOutcome::Updated
-        } else {
-            RegisterShortcutOutcome::Registered
-        }
-    }
-
-    pub fn register_default_shortcuts(&mut self) -> Vec<(KeyChord, RegisterShortcutOutcome)> {
-        let bindings = default_shortcut_bindings();
-        let mut registered = Vec::with_capacity(bindings.len());
-        for (chord, command) in bindings {
-            let outcome = self.register_shortcut(chord.clone(), command);
-            registered.push((chord, outcome));
-        }
-        registered
-    }
-
-    pub fn dispatch_shortcut(&mut self, chord: &KeyChord) -> ShortcutDispatchOutcome {
-        let Some(command) = self.shortcuts.get(chord).copied() else {
-            return ShortcutDispatchOutcome::Unhandled;
-        };
-
-        let outcome = match command {
-            EditorCommand::Save => CommandExecutionOutcome::Save(
-                self.request_save(SaveTrigger::Shortcut(chord.clone())),
-            ),
-            EditorCommand::Undo => CommandExecutionOutcome::Undo(self.undo()),
-            EditorCommand::Redo => CommandExecutionOutcome::Redo(self.redo()),
-            EditorCommand::QuickOpen => CommandExecutionOutcome::QuickOpen,
-            EditorCommand::FindInFile => CommandExecutionOutcome::FindInFile,
-            EditorCommand::FindInWorkspace => CommandExecutionOutcome::FindInWorkspace,
-            EditorCommand::Copy => CommandExecutionOutcome::Copy(self.request_copy()),
-            EditorCommand::OpenMarkdownMenu => {
-                self.request_markdown_menu();
-                CommandExecutionOutcome::OpenMarkdownMenu
-            }
-            EditorCommand::OpenMarkdownPreview => {
-                self.request_markdown_preview();
-                CommandExecutionOutcome::OpenMarkdownPreview
-            }
-        };
-
-        self.events.push_back(EditorCoreEvent::ShortcutDispatched(
-            ShortcutDispatchedEvent {
-                chord: chord.clone(),
-                command,
-            },
-        ));
-
-        ShortcutDispatchOutcome::Executed { command, outcome }
-    }
-
     pub fn drain_events(&mut self) -> Vec<EditorCoreEvent> {
         self.events.drain(..).collect()
     }
@@ -725,30 +669,6 @@ impl EditorCore {
             self.push_search_focus_event();
         }
         selected
-    }
-
-    fn push_search_results_event(&mut self, query: SearchQuery, matches: Vec<SearchMatch>) {
-        let focus_index = self.search_navigator.current_index();
-        let focus_match = self.search_navigator.current().cloned();
-        self.events.push_back(EditorCoreEvent::SearchResultsUpdated(
-            SearchResultsUpdatedEvent {
-                query,
-                matches,
-                focus_index,
-                focus_match,
-            },
-        ));
-    }
-
-    fn push_search_focus_event(&mut self) {
-        let focus_index = self.search_navigator.current_index();
-        let focus_match = self.search_navigator.current().cloned();
-        self.events.push_back(EditorCoreEvent::SearchFocusChanged(
-            SearchFocusChangedEvent {
-                focus_index,
-                focus_match,
-            },
-        ));
     }
 
     pub fn execute_markdown_feature(
@@ -951,240 +871,12 @@ impl EditorCore {
             }));
         OpenEditorContextMenuOutcome::Opened { file_path }
     }
-
-    pub fn execute_context_menu_item(
-        &mut self,
-        item: EditorContextMenuItem,
-    ) -> ExecuteEditorContextMenuOutcome {
-        if !self.context_menu.is_open {
-            return ExecuteEditorContextMenuOutcome::ContextMenuClosed;
-        }
-        let Some(file_path) = self.context_menu.target_file_path.clone() else {
-            self.close_context_menu();
-            return ExecuteEditorContextMenuOutcome::ContextMenuClosed;
-        };
-
-        let outcome = match item {
-            EditorContextMenuItem::Save => {
-                CommandExecutionOutcome::Save(self.request_save(SaveTrigger::ContextMenu))
-            }
-            EditorContextMenuItem::Copy => CommandExecutionOutcome::Copy(self.request_copy()),
-            EditorContextMenuItem::MarkdownMenu => {
-                self.request_markdown_menu();
-                CommandExecutionOutcome::OpenMarkdownMenu
-            }
-            EditorContextMenuItem::MarkdownPreview => {
-                self.request_markdown_preview();
-                CommandExecutionOutcome::OpenMarkdownPreview
-            }
-        };
-        self.events
-            .push_back(EditorCoreEvent::ContextMenuItemExecuted(
-                ContextMenuItemExecutedEvent { file_path, item },
-            ));
-        self.close_context_menu();
-
-        ExecuteEditorContextMenuOutcome::Executed { item, outcome }
-    }
-
-    fn push_buffer_edited_event(
-        &mut self,
-        file_path: PathBuf,
-        revision: u64,
-        cursor_char: usize,
-        is_dirty: bool,
-    ) {
-        self.events
-            .push_back(EditorCoreEvent::BufferEdited(BufferEditedEvent {
-                file_path,
-                revision,
-                cursor_char,
-                is_dirty,
-            }));
-    }
-
-    fn push_markdown_observation_events(
-        &mut self,
-        file_path: &Path,
-        revision: u64,
-        previous_content: &str,
-        current_content: &str,
-    ) {
-        let events = self.markdown_service.observe_change(
-            file_path,
-            revision,
-            previous_content,
-            current_content,
-        );
-        for event in events {
-            self.push_markdown_service_event(event);
-        }
-    }
-
-    fn push_markdown_service_event(&mut self, event: MarkdownServiceEvent) {
-        match event {
-            MarkdownServiceEvent::FeatureRequested(event) => self
-                .events
-                .push_back(EditorCoreEvent::MarkdownFeatureRequested(event)),
-            MarkdownServiceEvent::DiffObserved(event) => self
-                .events
-                .push_back(EditorCoreEvent::MarkdownDiffObserved(event)),
-            MarkdownServiceEvent::PreviewSynced(event) => {
-                self.update_markdown_preview_snapshot(&event);
-                self.events
-                    .push_back(EditorCoreEvent::MarkdownPreviewSynced(event));
-            }
-        }
-    }
-
-    fn update_markdown_preview_snapshot(&mut self, event: &MarkdownPreviewSyncedEvent) {
-        self.markdown_preview_snapshot = Some(MarkdownPreviewSnapshot {
-            file_path: event.file_path.clone(),
-            revision: event.revision,
-            headings: event.headings.clone(),
-        });
-    }
-
-    fn sync_services_after_buffer_update(&mut self, current_content: &str) {
-        if let Some(event) = self.minimap_service.on_buffer_updated(current_content) {
-            self.push_minimap_service_event(event);
-        }
-        if let Some(event) = self.smart_gutter_service.on_buffer_updated(current_content) {
-            self.push_smart_gutter_service_event(event);
-        }
-    }
-
-    fn push_minimap_service_event(&mut self, event: MinimapServiceEvent) {
-        match event {
-            MinimapServiceEvent::OverlaysUpdated(event) => self
-                .events
-                .push_back(EditorCoreEvent::MinimapOverlaysUpdated(event)),
-            MinimapServiceEvent::FocusIdSynced(event) => self
-                .events
-                .push_back(EditorCoreEvent::MinimapFocusIdSynced(event)),
-        }
-    }
-
-    fn push_smart_gutter_service_event(&mut self, event: SmartGutterServiceEvent) {
-        match event {
-            SmartGutterServiceEvent::IndicatorsUpdated(event) => self
-                .events
-                .push_back(EditorCoreEvent::SmartGutterIndicatorsUpdated(event)),
-            SmartGutterServiceEvent::FocusIdSynced(event) => self
-                .events
-                .push_back(EditorCoreEvent::SmartGutterFocusIdSynced(event)),
-            SmartGutterServiceEvent::JumpRequested(event) => self
-                .events
-                .push_back(EditorCoreEvent::SmartGutterJumpRequested(event)),
-            SmartGutterServiceEvent::ApprovalRequestOpened(event) => self
-                .events
-                .push_back(EditorCoreEvent::SmartGutterApprovalRequestOpened(event)),
-        }
-    }
-
-    fn request_copy(&mut self) -> CopyOutcome {
-        let Some(buffer) = self.active_buffer.as_ref() else {
-            return CopyOutcome::NoBuffer;
-        };
-        self.events
-            .push_back(EditorCoreEvent::CopyRequested(CopyRequestedEvent {
-                file_path: buffer.file_path.clone(),
-            }));
-        CopyOutcome::Copied
-    }
-
-    fn request_markdown_menu(&mut self) {
-        let Some(buffer) = self.active_buffer.as_ref() else {
-            return;
-        };
-        self.events
-            .push_back(EditorCoreEvent::MarkdownMenuRequested(
-                MarkdownMenuRequestedEvent {
-                    file_path: buffer.file_path.clone(),
-                },
-            ));
-    }
-
-    fn request_markdown_preview(&mut self) {
-        let Some(buffer) = self.active_buffer.as_ref() else {
-            return;
-        };
-        self.events
-            .push_back(EditorCoreEvent::MarkdownPreviewRequested(
-                MarkdownPreviewRequestedEvent {
-                    file_path: buffer.file_path.clone(),
-                },
-            ));
-    }
-
-    fn close_context_menu(&mut self) {
-        self.context_menu = EditorContextMenu::default();
-    }
 }
 
 impl Default for EditorCore {
     fn default() -> Self {
         Self::new()
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct EditorBuffer {
-    file_path: PathBuf,
-    content: String,
-    cursor_char: usize,
-    revision: u64,
-    saved_content: String,
-    undo_stack: Vec<HistoryState>,
-    redo_stack: Vec<HistoryState>,
-}
-
-impl EditorBuffer {
-    fn new(file_path: PathBuf, content: String) -> Self {
-        Self {
-            file_path,
-            content: content.clone(),
-            cursor_char: 0,
-            revision: 0,
-            saved_content: content,
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-        }
-    }
-
-    fn current_history_state(&self) -> HistoryState {
-        HistoryState {
-            content: self.content.clone(),
-            cursor_char: self.cursor_char,
-        }
-    }
-
-    fn apply_history_state(&mut self, state: HistoryState) {
-        self.content = state.content;
-        self.cursor_char = state.cursor_char;
-    }
-
-    fn is_dirty(&self) -> bool {
-        self.content != self.saved_content
-    }
-
-    fn snapshot(&self) -> EditorBufferSnapshot {
-        EditorBufferSnapshot {
-            file_path: self.file_path.clone(),
-            content: self.content.clone(),
-            cursor_char: self.cursor_char,
-            revision: self.revision,
-            is_dirty: self.is_dirty(),
-            can_undo: !self.undo_stack.is_empty(),
-            can_redo: !self.redo_stack.is_empty(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct HistoryState {
-    content: String,
-    cursor_char: usize,
 }
 
 #[cfg(test)]
