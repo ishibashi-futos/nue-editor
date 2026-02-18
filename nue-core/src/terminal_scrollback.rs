@@ -30,7 +30,7 @@ impl LineCell {
 }
 
 /// スクロールバックの 1 行。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScrollbackLine {
     raw: String,
     width: usize,
@@ -68,7 +68,7 @@ impl ScrollbackLine {
 }
 
 /// スクロールバックを保持する構造体。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scrollback {
     max_lines: usize,
     lines: VecDeque<ScrollbackLine>,

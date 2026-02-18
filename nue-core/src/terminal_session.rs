@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
+use crate::terminal_scrollback::{Scrollback, ScrollbackLine};
+
 pub type TerminalCommandId = u64;
 pub const DEFAULT_QUEUE_MAX_PENDING: usize = 4;
 
@@ -60,6 +62,7 @@ pub struct TerminalSession {
     queued_command_ids: VecDeque<TerminalCommandId>,
     commands: BTreeMap<TerminalCommandId, TerminalCommandSnapshot>,
     events: VecDeque<TerminalSessionEvent>,
+    scrollback: Scrollback,
 }
 
 impl TerminalSession {
@@ -80,6 +83,7 @@ impl TerminalSession {
             queued_command_ids: VecDeque::new(),
             commands: BTreeMap::new(),
             events: VecDeque::new(),
+            scrollback: Scrollback::default(),
         }
     }
 
@@ -144,6 +148,31 @@ impl TerminalSession {
     pub fn running_command(&self) -> Option<&TerminalCommandSnapshot> {
         let command_id = self.running_command_id?;
         self.commands.get(&command_id)
+    }
+
+    /// 実行出力をスクロールバックに追加する。
+    pub fn push_output_line(&mut self, raw: impl Into<String>) {
+        self.scrollback.push_line(raw);
+    }
+
+    /// 現在のスクロールバック行を順に取得する。
+    pub fn scrollback_lines(&self) -> Vec<ScrollbackLine> {
+        self.scrollback.lines().cloned().collect()
+    }
+
+    /// スクロールバックの最後の行。
+    pub fn last_scrollback_line(&self) -> Option<&ScrollbackLine> {
+        self.scrollback.last_line()
+    }
+
+    /// 保存しているスクロールバック行数。
+    pub fn scrollback_len(&self) -> usize {
+        self.scrollback.len()
+    }
+
+    /// スクロールバックの最大行数。
+    pub fn scrollback_capacity(&self) -> usize {
+        self.scrollback.capacity()
     }
 
     pub fn command(&self, command_id: TerminalCommandId) -> Option<&TerminalCommandSnapshot> {
@@ -398,5 +427,29 @@ mod tests {
             session.enqueue_run_command("agent-f", "cmd-6"),
             QueueCommandOutcome::RejectedQueueFull
         );
+    }
+
+    #[test]
+    fn scrollback_tracks_output_lines() {
+        let mut session = TerminalSession::new("workspace-session-1");
+
+        session.push_output_line("first");
+        session.push_output_line("second");
+
+        assert_eq!(session.scrollback_len(), 2);
+        let raws: Vec<String> = session
+            .scrollback_lines()
+            .iter()
+            .map(|line| line.raw().to_string())
+            .collect();
+        assert_eq!(raws, vec!["first".to_string(), "second".to_string()]);
+        assert_eq!(session.last_scrollback_line().unwrap().raw(), "second");
+    }
+
+    #[test]
+    fn scrollback_starts_empty() {
+        let session = TerminalSession::new("workspace-session-2");
+        assert!(session.last_scrollback_line().is_none());
+        assert_eq!(session.scrollback_len(), 0);
     }
 }

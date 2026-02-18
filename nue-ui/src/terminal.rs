@@ -1,3 +1,4 @@
+use nue_core::terminal_scrollback::ScrollbackLine;
 use nue_core::terminal_session::{
     QueueCommandOutcome, TerminalCommandId, TerminalCommandSnapshot, TerminalSession,
     TerminalSessionEvent,
@@ -62,6 +63,26 @@ impl TerminalUiController {
     /// 直近に生成されたステータス/通知イベントを取り出す。
     pub fn drain_events(&mut self) -> Vec<TerminalSessionEvent> {
         self.session.drain_events()
+    }
+
+    /// 実行出力をスクロールバックに追加する。
+    pub fn push_output_line(&mut self, raw: impl Into<String>) {
+        self.session.push_output_line(raw);
+    }
+
+    /// スクロールバックの全行を取得する。
+    pub fn scrollback_lines(&self) -> Vec<ScrollbackLine> {
+        self.session.scrollback_lines()
+    }
+
+    /// スクロールバックの最後の行。
+    pub fn last_scrollback_line(&self) -> Option<ScrollbackLine> {
+        self.session.last_scrollback_line().cloned()
+    }
+
+    /// スクロールバックの行数。
+    pub fn scrollback_len(&self) -> usize {
+        self.session.scrollback_len()
     }
 }
 
@@ -191,6 +212,27 @@ mod tests {
                     message: "run_command `fmt` (agent agent-b) が失敗しました".to_string(),
                 }),
             ]
+        );
+    }
+
+    #[test]
+    fn scrollback_lines_are_exposed() {
+        let mut controller = TerminalUiController::new("workspace-session-1");
+
+        controller.push_output_line("first");
+        controller.push_output_line("次の行");
+
+        assert_eq!(controller.scrollback_len(), 2);
+        let lines = controller.scrollback_lines();
+        assert_eq!(lines[0].raw(), "first");
+        assert_eq!(lines[1].raw(), "次の行");
+        assert_eq!(lines[1].width(), 6);
+
+        assert_eq!(
+            controller
+                .last_scrollback_line()
+                .map(|line| line.raw().to_string()),
+            Some("次の行".to_string())
         );
     }
 }
