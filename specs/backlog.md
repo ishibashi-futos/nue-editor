@@ -30,7 +30,7 @@
 - [x] ED-7: `Smart Gutter` の差分タイプ判別 (git/AI)・色アニメーション・クリックジャンプ・Approval Request 連携を分解し、`Structure Path`/`Command Hub` の状態と連動するイベントを定義する。
 - [x] ED-8: ビュー側で Markdown Preview を右クリックメニューに統合し、プレビューとのスクロール同期や見出しクリックで本文にジャンプする機能を追加する。
 - [x] ED-9: ペインの再配置・Split/Close/Open to Side/Move Tab 機能などを制御する `PaneManager` を実装し、ペイン状態と Command Hub の設定と連携させる。
-- [ ] ED-10: タブ操作（ドラッグ並び替え、ピン止め、Close Others/Close to Right/Reopen Closed Tab）の各操作フローを `TabManager` でモデル化し、UI/キーボード/Command Hub いずれからも呼べるようにする。
+- [x] ED-10: タブ操作（ドラッグ再配置・ピン付け・Close Others/Close to Right/Reopen Closed Tab）の操作フローを `TabManager` ベースで定義し、`nue-ui::tab_bar::TabBarUiController` を介して UI/キーボード/Command Hub から呼べるようにする。
 - [x] ED-11: ペインごとの「直前ファイルへ戻る」履歴スタックを `PaneHistory` で保持する仕組みを作成する。
 - [x] ED-12: セッション復元機能の骨格（分割構成・アクティブタブ・タブ順序/ピン状態）を `SessionState` に格納し、保存/復元フローを実装。失敗した場合は UI で理由付き通知。
 - [x] ED-13: `Structure Path` コンポーネントを追加し、セグメントに Agent Status/差分マークを表示。クリック・`Alt+1`〜`Alt+5`・Command Hub Backoff と同期。
