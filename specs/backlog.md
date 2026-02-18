@@ -76,6 +76,6 @@
 - [x] `DesignSystem` の `glass_style_for_surface` / `status_style_for` / `diff_style_for` / `OverlayZIndexManager::resolve` を実 UI（Command Hub/Workspace Rail/Structure Path/Smart Gutter/Minimap）へ適用する。
 - [x] `CommandHubSession` と `CommandHubActionModel` を UI 入力と接続し、Action/Navigation 切替、Picker 実行、破壊的操作確認フローを `nue-ui` 側で完結させる。
 - [x] `CommandHubDispatchOutcome`（`Closed` / `BackToListing` / `Failed` / `Canceled` 相当）を UI 状態遷移と通知表示へ明示マッピングする。
-- [ ] `CommandHubActionModel` の実行結果を Workspace/Pane/Terminal の実体状態更新へ接続し、モデル内完結から上位レイヤー連携へ置き換える。
+- [x] `CommandHubActionModel` の実行結果を Workspace/Pane/Terminal の実体状態更新へ接続し、モデル内完結から上位レイヤー連携へ置き換える。
 - [x] `EditorCore` 公開型の `PathBuf` を UI 表示へ変換する文字列化ポリシー（非UTF-8時の扱い含む）を仕様化し、上位層で統一適用する。
 - [ ] `cargo clippy --all-targets -- -D warnings` で検出される既存警告（`pane_history` / `search_navigator` / `structure_path` 付近）を解消し、`scripts/sanity.sh` 完了条件を満たす。

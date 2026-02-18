@@ -177,6 +177,75 @@ impl CommandHubStateSink for CommandHubStateStoreSink {
     }
 }
 
+/// Command Hub の実行結果を反映するアプリケーション側の実体状態。 
+#[derive(Debug)]
+pub struct CommandHubApplicationState {
+    workspaces: Vec<WorkspaceItem>,
+    pane_manager: PaneManager,
+    terminals: Vec<TerminalItem>,
+    tab_manager: TabManager,
+    focused_panel: Option<PanelTarget>,
+}
+
+impl CommandHubApplicationState {
+    /// スナップショットから初期状態を組み立てる。
+    pub fn new(snapshot: &CommandHubStateSnapshot) -> Self {
+        Self {
+            workspaces: snapshot.workspaces.clone(),
+            pane_manager: PaneManager::from_items(snapshot.panes.clone()),
+            terminals: snapshot.terminals.clone(),
+            tab_manager: TabManager::from_snapshots(snapshot.tabs.clone(), DEFAULT_HISTORY_CAPACITY),
+            focused_panel: snapshot.focused_panel,
+        }
+    }
+
+    /// 最新のスナップショットの状態で置き換える。
+    pub fn sync_from_snapshot(&mut self, snapshot: &CommandHubStateSnapshot) {
+        self.workspaces = snapshot.workspaces.clone();
+        self.pane_manager = PaneManager::from_items(snapshot.panes.clone());
+        self.terminals = snapshot.terminals.clone();
+        self.tab_manager = TabManager::from_snapshots(snapshot.tabs.clone(), DEFAULT_HISTORY_CAPACITY);
+        self.focused_panel = snapshot.focused_panel;
+    }
+
+    pub fn workspaces(&self) -> &[WorkspaceItem] {
+        &self.workspaces
+    }
+
+    pub fn pane_manager(&self) -> &PaneManager {
+        &self.pane_manager
+    }
+
+    pub fn terminals(&self) -> &[TerminalItem] {
+        &self.terminals
+    }
+
+    pub fn tab_manager(&self) -> &TabManager {
+        &self.tab_manager
+    }
+
+    pub fn focused_panel(&self) -> Option<PanelTarget> {
+        self.focused_panel
+    }
+}
+
+/// 実体状態を親レイヤーへ伝える Sink。
+pub struct CommandHubApplicationStateSink {
+    state: Rc<RefCell<CommandHubApplicationState>>,
+}
+
+impl CommandHubApplicationStateSink {
+    pub fn new(state: Rc<RefCell<CommandHubApplicationState>>) -> Self {
+        Self { state }
+    }
+}
+
+impl CommandHubStateSink for CommandHubApplicationStateSink {
+    fn handle_event(&mut self, _event: &CommandActionEvent, snapshot: &CommandHubStateSnapshot) {
+        self.state.borrow_mut().sync_from_snapshot(snapshot);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandActionError {
     UnsupportedCommand {
@@ -1425,6 +1494,57 @@ mod tests {
             assert_eq!(snapshot.terminals.len(), 2);
             assert!(snapshot.terminals.iter().any(|terminal| terminal.is_active));
         }
+    }
+
+    #[test]
+    fn application_state_reflects_latest_snapshot() {
+        let mut model = model();
+        let _ = model.execute(&action_command("pane", "close", "pane-2"));
+        let snapshot = CommandHubStateSnapshot::from_model(&model);
+        let state = CommandHubApplicationState::new(&snapshot);
+
+        assert_eq!(state.workspaces(), snapshot.workspaces.as_slice());
+        assert_eq!(state.pane_manager().panes().len(), snapshot.panes.len());
+        assert_eq!(state.terminals().len(), snapshot.terminals.len());
+        assert_eq!(state.tab_manager().tabs(), snapshot.tabs);
+        assert_eq!(state.focused_panel(), snapshot.focused_panel);
+    }
+
+    #[test]
+    fn application_state_sink_updates_shared_state() {
+        let mut model = model();
+        let initial_snapshot = CommandHubStateSnapshot::from_model(&model);
+        let shared_state = Rc::new(RefCell::new(CommandHubApplicationState::new(
+            &initial_snapshot,
+        )));
+        let mut sink = CommandHubApplicationStateSink::new(shared_state.clone());
+
+        let outcome = model.execute(&action_command("terminal", "new", ""));
+        let terminal_id = match outcome {
+            CommandActionOutcome::Executed(CommandActionEvent::TerminalCreated { terminal_id }) => {
+                terminal_id
+            }
+            _ => panic!("Terminal 新規作成が失敗しました"),
+        };
+        let snapshot = CommandHubStateSnapshot::from_model(&model);
+        sink.handle_event(
+            &CommandActionEvent::TerminalCreated {
+                terminal_id: terminal_id.clone(),
+            },
+            &snapshot,
+        );
+
+        let borrowed = shared_state.borrow();
+        assert_eq!(borrowed.terminals().len(), snapshot.terminals.len());
+        assert!(borrowed
+            .terminals()
+            .iter()
+            .any(|terminal| terminal.id == terminal_id));
+        assert_eq!(
+            borrowed.pane_manager().panes().len(),
+            snapshot.panes.len()
+        );
+        assert_eq!(borrowed.tab_manager().tabs(), snapshot.tabs);
     }
 
     #[test]
