@@ -98,6 +98,19 @@ pub enum CommandActionEvent {
     },
 }
 
+/// 上位レイヤに CommandHub の実行結果を伝える受け口。
+pub trait CommandHubStateSink: 'static {
+    /// モデルがコマンドを実行した際に呼び出される。
+    fn handle_event(&mut self, event: &CommandActionEvent);
+}
+
+/// デフォルトでは何もしない Sink。
+pub struct NoopCommandHubStateSink;
+
+impl CommandHubStateSink for NoopCommandHubStateSink {
+    fn handle_event(&mut self, _event: &CommandActionEvent) {}
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandActionError {
     UnsupportedCommand {
@@ -134,7 +147,6 @@ pub enum CommandHubDispatchOutcome {
     BackToListing { candidate_id: Option<String> },
 }
 
-#[derive(Debug, Clone)]
 pub struct CommandHubActionModel {
     workspaces: Vec<WorkspaceItem>,
     pane_manager: PaneManager,
@@ -142,6 +154,20 @@ pub struct CommandHubActionModel {
     tab_manager: TabManager,
     selected_text: Option<String>,
     focused_panel: Option<PanelTarget>,
+    state_sink: Box<dyn CommandHubStateSink>,
+}
+
+impl std::fmt::Debug for CommandHubActionModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CommandHubActionModel")
+            .field("workspaces", &self.workspaces)
+            .field("pane_manager", &self.pane_manager)
+            .field("terminals", &self.terminals)
+            .field("tab_manager", &self.tab_manager)
+            .field("selected_text", &self.selected_text)
+            .field("focused_panel", &self.focused_panel)
+            .finish()
+    }
 }
 
 impl CommandHubActionModel {
@@ -151,6 +177,23 @@ impl CommandHubActionModel {
         terminals: Vec<TerminalItem>,
         tabs: Vec<TabSnapshot>,
     ) -> Self {
+        Self::with_state_sink(
+            workspaces,
+            panes,
+            terminals,
+            tabs,
+            Box::new(NoopCommandHubStateSink),
+        )
+    }
+
+    /// Sink を指定して作成するコンストラクタ。
+    pub fn with_state_sink(
+        workspaces: Vec<WorkspaceItem>,
+        panes: Vec<PaneItem>,
+        terminals: Vec<TerminalItem>,
+        tabs: Vec<TabSnapshot>,
+        state_sink: Box<dyn CommandHubStateSink>,
+    ) -> Self {
         Self {
             workspaces,
             pane_manager: PaneManager::from_items(panes),
@@ -158,6 +201,7 @@ impl CommandHubActionModel {
             tab_manager: TabManager::from_snapshots(tabs, DEFAULT_HISTORY_CAPACITY),
             selected_text: None,
             focused_panel: None,
+            state_sink,
         }
     }
 
@@ -196,6 +240,11 @@ impl CommandHubActionModel {
     /// UI 側でフォーカスパネルの状態を更新する。
     pub fn set_focused_panel(&mut self, panel: Option<PanelTarget>) {
         self.focused_panel = panel;
+    }
+
+    /// 実行結果を受けて上位レイヤの状態を更新する Sink を差し替える。
+    pub fn set_state_sink(&mut self, sink: Box<dyn CommandHubStateSink>) {
+        self.state_sink = sink;
     }
 
     pub fn workspaces(&self) -> &[WorkspaceItem] {
@@ -269,7 +318,7 @@ impl CommandHubActionModel {
             return unsupported_command(command);
         }
 
-        match (command.domain.as_str(), command.verb.as_str()) {
+        let outcome = match (command.domain.as_str(), command.verb.as_str()) {
             ("workspace", "add") => self.execute_workspace_add(command),
             ("workspace", "open") | ("workspace", "activate") => {
                 self.execute_workspace_activate(command)
@@ -300,7 +349,13 @@ impl CommandHubActionModel {
             ("tab", "reopen") => self.execute_tab_reopen(command),
             ("tab", "reorder") => self.execute_tab_reorder(command),
             _ => unsupported_command(command),
+        };
+
+        if let CommandActionOutcome::Executed(ref event) = outcome {
+            self.state_sink.handle_event(event);
         }
+
+        outcome
     }
 
     fn execute_workspace_add(&mut self, command: &ParsedCommand) -> CommandActionOutcome {
@@ -1127,6 +1182,8 @@ mod tests {
     use super::*;
     use crate::command_hub::{CommandHubSession, PickerCandidate};
     use crate::pane_manager::{PaneItem, PaneSplitDirection};
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     fn action_command(domain: &str, verb: &str, target: &str) -> ParsedCommand {
         ParsedCommand {
@@ -1134,6 +1191,22 @@ mod tests {
             domain: domain.to_string(),
             verb: verb.to_string(),
             target: target.to_string(),
+        }
+    }
+
+    struct RecordingSink {
+        events: Rc<RefCell<Vec<CommandActionEvent>>>,
+    }
+
+    impl RecordingSink {
+        fn new(events: Rc<RefCell<Vec<CommandActionEvent>>>) -> Self {
+            Self { events }
+        }
+    }
+
+    impl CommandHubStateSink for RecordingSink {
+        fn handle_event(&mut self, event: &CommandActionEvent) {
+            self.events.borrow_mut().push(event.clone());
         }
     }
 
@@ -1231,6 +1304,29 @@ mod tests {
             })
         );
         assert_eq!(model.workspaces().len(), 2);
+    }
+
+    #[test]
+    fn state_sink_receives_executed_events() {
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let mut model = model();
+        model.set_state_sink(Box::new(RecordingSink::new(events.clone())));
+
+        assert_eq!(
+            model.execute(&action_command("pane", "close", "pane-2")),
+            CommandActionOutcome::Executed(CommandActionEvent::PaneClosed {
+                pane_id: "pane-2".to_string(),
+            })
+        );
+
+        let recorded = events.borrow();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(
+            recorded[0],
+            CommandActionEvent::PaneClosed {
+                pane_id: "pane-2".to_string()
+            }
+        );
     }
 
     #[test]
