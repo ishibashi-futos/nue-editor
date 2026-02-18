@@ -3,7 +3,9 @@ use crate::{
         CommandHubSession, CommandMode, ParsedCommand, PickerCancelOutcome, PickerCandidate,
         PickerExecuteOutcome,
     },
-    pane_manager::{PaneItem, PaneManager, PaneManagerError, PaneSplitDirection},
+    pane_manager::{
+        PaneItem, PaneLayoutSnapshot, PaneManager, PaneManagerError, PaneSplitDirection,
+    },
     tab_manager::{DEFAULT_HISTORY_CAPACITY, TabManager, TabManagerError, TabSnapshot},
 };
 use std::{cell::RefCell, rc::Rc};
@@ -125,6 +127,7 @@ impl CommandHubStateSink for NoopCommandHubStateSink {
 pub struct CommandHubStateSnapshot {
     pub workspaces: Vec<WorkspaceItem>,
     pub panes: Vec<PaneItem>,
+    pub pane_layouts: Vec<PaneLayoutSnapshot>,
     pub terminals: Vec<TerminalItem>,
     pub tabs: Vec<TabSnapshot>,
     pub focused_panel: Option<PanelTarget>,
@@ -135,6 +138,7 @@ impl CommandHubStateSnapshot {
         Self {
             workspaces: model.workspaces().to_vec(),
             panes: model.panes(),
+            pane_layouts: model.pane_layouts(),
             terminals: model.terminals().to_vec(),
             tabs: model.tabs(),
             focused_panel: model.focused_panel(),
@@ -147,6 +151,7 @@ impl CommandHubStateSnapshot {
 pub struct CommandHubStateStore {
     pub workspaces: Vec<WorkspaceItem>,
     pub panes: Vec<PaneItem>,
+    pub pane_layouts: Vec<PaneLayoutSnapshot>,
     pub terminals: Vec<TerminalItem>,
     pub tabs: Vec<TabSnapshot>,
     pub focused_panel: Option<PanelTarget>,
@@ -162,6 +167,7 @@ impl CommandHubStateStore {
     pub fn sync_from_snapshot(&mut self, snapshot: &CommandHubStateSnapshot) {
         self.workspaces = snapshot.workspaces.clone();
         self.panes = snapshot.panes.clone();
+        self.pane_layouts = snapshot.pane_layouts.clone();
         self.terminals = snapshot.terminals.clone();
         self.tabs = snapshot.tabs.clone();
         self.focused_panel = snapshot.focused_panel;
@@ -200,7 +206,8 @@ impl CommandHubApplicationState {
     pub fn new(snapshot: &CommandHubStateSnapshot) -> Self {
         Self {
             workspaces: snapshot.workspaces.clone(),
-            pane_manager: PaneManager::from_items(snapshot.panes.clone()),
+            pane_manager: PaneManager::from_layout_snapshots(snapshot.pane_layouts.clone())
+                .expect("pane layout snapshot が不正です"),
             terminals: snapshot.terminals.clone(),
             tab_manager: TabManager::from_snapshots(
                 snapshot.tabs.clone(),
@@ -213,7 +220,8 @@ impl CommandHubApplicationState {
     /// 最新のスナップショットの状態で置き換える。
     pub fn sync_from_snapshot(&mut self, snapshot: &CommandHubStateSnapshot) {
         self.workspaces = snapshot.workspaces.clone();
-        self.pane_manager = PaneManager::from_items(snapshot.panes.clone());
+        self.pane_manager = PaneManager::from_layout_snapshots(snapshot.pane_layouts.clone())
+            .expect("pane layout snapshot が不正です");
         self.terminals = snapshot.terminals.clone();
         self.tab_manager =
             TabManager::from_snapshots(snapshot.tabs.clone(), DEFAULT_HISTORY_CAPACITY);
@@ -400,6 +408,10 @@ impl CommandHubActionModel {
 
     pub fn panes(&self) -> Vec<PaneItem> {
         self.pane_manager.panes()
+    }
+
+    pub fn pane_layouts(&self) -> Vec<PaneLayoutSnapshot> {
+        self.pane_manager.layout_snapshot()
     }
 
     pub fn terminals(&self) -> &[TerminalItem] {
@@ -1657,6 +1669,21 @@ mod tests {
         assert_eq!(state.terminals().len(), snapshot.terminals.len());
         assert_eq!(state.tab_manager().tabs(), snapshot.tabs);
         assert_eq!(state.focused_panel(), snapshot.focused_panel);
+    }
+
+    #[test]
+    fn application_state_preserves_pane_layout_tabs() {
+        let mut model = model();
+        model
+            .pane_manager
+            .add_tab_to_pane("pane-1", "extra.md")
+            .expect("tab 追加成功");
+        let expected_layout = model.pane_manager.layout_snapshot();
+        let snapshot = CommandHubStateSnapshot::from_model(&model);
+
+        let state = CommandHubApplicationState::new(&snapshot);
+
+        assert_eq!(state.pane_manager().layout_snapshot(), expected_layout);
     }
 
     #[test]

@@ -107,6 +107,16 @@ impl PaneManager {
         manager
     }
 
+    /// 完全なレイアウトスナップショットから初期状態を再構築する。
+    pub fn from_layout_snapshots(
+        snapshots: Vec<PaneLayoutSnapshot>,
+    ) -> Result<Self, PaneLayoutRestoreError> {
+        let mut manager = Self::new_with_capacity(snapshots.len().max(1));
+        manager.restore_layout(snapshots)?;
+        manager.record_initial_history();
+        Ok(manager)
+    }
+
     /// 現在のペイン構成をスナップショットとして取得する。
     pub fn layout_snapshot(&self) -> Vec<PaneLayoutSnapshot> {
         self.panes
@@ -348,6 +358,7 @@ impl PaneManager {
             .iter()
             .position(|pane| pane.contains_tab(tab_id))
             .ok_or_else(|| PaneManagerError::TabNotFound(tab_id.to_string()))?;
+        let target_index = self.find_index(target_pane_id)?;
         let source_pane_id = self.panes[source_index].id.clone();
         if self.panes[source_index].tabs.len() <= 1 {
             return Err(PaneManagerError::SingleTabPane(
@@ -357,7 +368,6 @@ impl PaneManager {
         let tab = self.panes[source_index]
             .remove_tab(tab_id)
             .ok_or_else(|| PaneManagerError::TabNotFound(tab_id.to_string()))?;
-        let target_index = self.find_index(target_pane_id)?;
         self.panes[target_index].tabs.push(tab);
         self.panes[target_index].active_tab_index = self.panes[target_index].tabs.len() - 1;
         if source_index < self.panes.len() {
@@ -638,6 +648,21 @@ mod tests {
         manager.move_tab(tab_id, "pane-2").unwrap();
         assert_eq!(manager.panes()[0].title, "README.md");
         assert_eq!(manager.panes()[1].title, "extra.md");
+    }
+
+    #[test]
+    fn move_tab_keeps_source_when_target_pane_missing() {
+        let mut manager = manager_with_two_panes();
+        let tab_id = manager
+            .add_tab_to_pane("pane-1", "extra.md")
+            .expect("tab 追加成功");
+        let before = manager.layout_snapshot();
+
+        assert_eq!(
+            manager.move_tab(&tab_id, "pane-404"),
+            Err(PaneManagerError::PaneNotFound("pane-404".to_string()))
+        );
+        assert_eq!(manager.layout_snapshot(), before);
     }
 
     #[test]
