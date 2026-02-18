@@ -145,4 +145,52 @@ mod tests {
         assert_eq!(controller.running_command().unwrap().id, 2);
         assert_eq!(controller.queue_len(), 0);
     }
+
+    #[test]
+    fn complete_running_command_generates_notifications() {
+        let mut controller = TerminalUiController::new("workspace-session-3");
+        controller.run_command("agent-a", "build");
+        controller.run_command("agent-b", "fmt");
+        controller.drain_events();
+
+        controller.complete_running_command(true);
+        assert_eq!(
+            controller.drain_events(),
+            vec![
+                TerminalSessionEvent::StatusChanged(TerminalStatusEvent {
+                    workspace_session_id: "workspace-session-3".to_string(),
+                    command_id: 1,
+                    state: TerminalCommandState::Completed,
+                    queue_length: 1,
+                }),
+                TerminalSessionEvent::Notification(TerminalNotificationEvent {
+                    workspace_session_id: "workspace-session-3".to_string(),
+                    message: "run_command `build` (agent agent-a) が完了しました".to_string(),
+                }),
+                TerminalSessionEvent::StatusChanged(TerminalStatusEvent {
+                    workspace_session_id: "workspace-session-3".to_string(),
+                    command_id: 2,
+                    state: TerminalCommandState::Running,
+                    queue_length: 0,
+                }),
+            ]
+        );
+
+        controller.complete_running_command(false);
+        assert_eq!(
+            controller.drain_events(),
+            vec![
+                TerminalSessionEvent::StatusChanged(TerminalStatusEvent {
+                    workspace_session_id: "workspace-session-3".to_string(),
+                    command_id: 2,
+                    state: TerminalCommandState::Failed,
+                    queue_length: 0,
+                }),
+                TerminalSessionEvent::Notification(TerminalNotificationEvent {
+                    workspace_session_id: "workspace-session-3".to_string(),
+                    message: "run_command `fmt` (agent agent-b) が失敗しました".to_string(),
+                }),
+            ]
+        );
+    }
 }

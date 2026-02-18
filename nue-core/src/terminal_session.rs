@@ -130,8 +130,12 @@ impl TerminalSession {
             TerminalCommandState::Failed
         };
 
+        let completed_snapshot = self.commands.get(&completed_id).cloned();
         self.update_command_state(completed_id, state);
         self.push_status_event(completed_id, state);
+        if let Some(snapshot) = completed_snapshot {
+            self.push_completion_notification(&snapshot, success);
+        }
         self.promote_next_queued_command();
 
         Some(completed_id)
@@ -186,6 +190,15 @@ impl TerminalSession {
                 state,
                 queue_length: self.queued_command_ids.len(),
             }));
+    }
+
+    /// コマンド完了時の通知をキューへ追加する。
+    fn push_completion_notification(&mut self, snapshot: &TerminalCommandSnapshot, success: bool) {
+        let outcome_text = if success { "完了" } else { "失敗" };
+        self.push_notification(format!(
+            "run_command `{}` (agent {}) が{}しました",
+            snapshot.command_line, snapshot.agent_id, outcome_text
+        ));
     }
 
     fn push_notification(&mut self, message: impl Into<String>) {
@@ -275,6 +288,10 @@ mod tests {
                     state: TerminalCommandState::Completed,
                     queue_length: 1,
                 }),
+                TerminalSessionEvent::Notification(TerminalNotificationEvent {
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    message: "run_command `cargo test` (agent agent-a) が完了しました".to_string(),
+                }),
                 TerminalSessionEvent::StatusChanged(TerminalStatusEvent {
                     workspace_session_id: "workspace-session-1".to_string(),
                     command_id: 2,
@@ -302,12 +319,18 @@ mod tests {
         );
         assert_eq!(
             session.drain_events(),
-            vec![TerminalSessionEvent::StatusChanged(TerminalStatusEvent {
-                workspace_session_id: "workspace-session-1".to_string(),
-                command_id: 1,
-                state: TerminalCommandState::Failed,
-                queue_length: 0,
-            }),]
+            vec![
+                TerminalSessionEvent::StatusChanged(TerminalStatusEvent {
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    command_id: 1,
+                    state: TerminalCommandState::Failed,
+                    queue_length: 0,
+                }),
+                TerminalSessionEvent::Notification(TerminalNotificationEvent {
+                    workspace_session_id: "workspace-session-1".to_string(),
+                    message: "run_command `cargo test` (agent agent-a) が失敗しました".to_string(),
+                }),
+            ]
         );
     }
 
