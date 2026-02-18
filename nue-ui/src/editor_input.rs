@@ -1,7 +1,6 @@
 use nue_core::editor_core::{
     EditorContextMenuItem, EditorCore, ExecuteEditorContextMenuOutcome,
-    ExecuteMarkdownFeatureOutcome, KeyChord, OpenEditorContextMenuOutcome,
-    ShortcutDispatchOutcome,
+    ExecuteMarkdownFeatureOutcome, KeyChord, OpenEditorContextMenuOutcome, ShortcutDispatchOutcome,
 };
 use nue_core::markdown_service::MarkdownFeature;
 
@@ -78,7 +77,7 @@ mod tests {
     }
 
     #[test]
-    fn context_menu操作はEditorCoreに伝播する() {
+    fn context_menu_propagates_to_editor_core() {
         let mut core = EditorCore::new();
         let file_path = sample_path("explorer", "rs");
         core.open_file(&file_path, "fn context() {}\n");
@@ -101,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn markdown_featureはMarkdownファイルで実行される() {
+    fn markdown_feature_runs_on_markdown_file() {
         let mut core = EditorCore::new();
         let file_path = sample_path("notes", "md");
         core.open_file(&file_path, "# Title\n\n- item\n");
