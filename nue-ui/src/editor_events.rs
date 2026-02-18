@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use nue_core::{
-    editor_core::EditorCoreEvent,
-    minimap_service::{FocusSyncTarget, MinimapFocusIdSyncedEvent, MinimapOverlaysUpdatedEvent},
-    smart_gutter_service::{
+    editor::core::EditorCoreEvent,
+    editor::minimap::{FocusSyncTarget, MinimapFocusIdSyncedEvent, MinimapOverlaysUpdatedEvent},
+    editor::smart_gutter::{
         SmartGutterApprovalRequestOpenedEvent, SmartGutterFocusIdSyncedEvent,
         SmartGutterIndicatorsUpdatedEvent, SmartGutterJumpRequestedEvent, SmartGutterSyncTarget,
     },
@@ -287,8 +287,8 @@ impl EditorEventSubscriber {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nue_core::minimap_service::FocusSyncTarget;
-    use nue_core::smart_gutter_service::SmartGutterSyncTarget;
+    use nue_core::editor::minimap::FocusSyncTarget;
+    use nue_core::editor::smart_gutter::SmartGutterSyncTarget;
 
     fn sample_path(name: &str) -> PathBuf {
         PathBuf::from(format!("/project/{}.rs", name))

@@ -3,7 +3,7 @@ use std::env;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
-use crate::terminal_scrollback::{Scrollback, ScrollbackLine};
+use crate::terminal::scrollback::{Scrollback, ScrollbackLine};
 
 pub type TerminalCommandId = u64;
 pub type TerminalAuditId = u64;

@@ -1,4 +1,4 @@
-use nue_core::workspace_rail::WorkspaceRailState;
+use nue_core::workspace::rail::WorkspaceRailState;
 
 pub const FONT_KEY_TEXT: &str = "nue-font::text";
 pub const FONT_KEY_EMPHASIS: &str = "nue-font::emphasis";

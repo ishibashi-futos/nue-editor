@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::mem;
 use std::path::PathBuf;
 
-use nue_core::terminal_scrollback::ScrollbackLine;
-use nue_core::terminal_session::{
+use nue_core::terminal::scrollback::ScrollbackLine;
+use nue_core::terminal::session::{
     QueueCommandOutcome, QueueInterruptionReason, QueueRejectionReason, RunCommandRequest,
     TerminalAuditEvent, TerminalAuditId, TerminalAuditPayload, TerminalCommandId,
     TerminalCommandSnapshot, TerminalCommandState, TerminalSession, TerminalSessionEvent,
@@ -214,7 +214,7 @@ impl TerminalUiController {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nue_core::terminal_session::{
+    use nue_core::terminal::session::{
         TerminalCommandState, TerminalNotificationEvent, TerminalStatusEvent,
     };
 

@@ -1,4 +1,4 @@
-use nue_core::terminal_scrollback::{
+use nue_core::terminal::scrollback::{
     LineCell, SCROLLBACK_DEFAULT_LINES, Scrollback, ScrollbackLine,
 };
 
@@ -10,7 +10,7 @@ pub struct TerminalCell {
 }
 
 impl TerminalCell {
-    /// {@link nue_core::terminal_scrollback::LineCell} から変換する。
+    /// {@link nue_core::terminal::scrollback::LineCell} から変換する。
     fn from_line_cell(cell: &LineCell) -> Self {
         Self {
             ch: cell.ch(),
@@ -123,7 +123,7 @@ impl TerminalScrollbackRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nue_core::terminal_scrollback::Scrollback;
+    use nue_core::terminal::scrollback::Scrollback;
 
     fn sample_scrollback() -> Scrollback {
         let mut scrollback = Scrollback::new(4);

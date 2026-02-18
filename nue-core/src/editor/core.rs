@@ -1,19 +1,19 @@
-use crate::markdown_service::{
+use crate::editor::markdown::{
     MarkdownDiffObservedEvent, MarkdownFeature, MarkdownFeatureRequestedEvent, MarkdownHeading,
     MarkdownPreviewSyncedEvent, MarkdownService, MarkdownServiceEvent,
 };
-use crate::minimap_service::{
+use crate::editor::minimap::{
     MinimapFocusIdSyncedEvent, MinimapOverlay, MinimapOverlaysUpdatedEvent, MinimapService,
     MinimapServiceEvent, MinimapSnapshot,
 };
-use crate::path_display::PathDisplayExt;
-use crate::search_navigator::SearchNavigator;
-use crate::search_service::{SearchError, SearchMatch, SearchQuery, SearchService};
-use crate::smart_gutter_service::{
+use crate::editor::smart_gutter::{
     OpenApprovalRequestError, SmartGutterApprovalRequestOpenedEvent, SmartGutterFocusIdSyncedEvent,
     SmartGutterIndicator, SmartGutterIndicatorsUpdatedEvent, SmartGutterJumpRequestedEvent,
     SmartGutterService, SmartGutterServiceEvent, SmartGutterSnapshot,
 };
+use crate::search::navigator::SearchNavigator;
+use crate::search::service::{SearchError, SearchMatch, SearchQuery, SearchService};
+use crate::shared::path_display::PathDisplayExt;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
@@ -1248,7 +1248,7 @@ fn default_shortcut_bindings() -> Vec<(KeyChord, EditorCommand)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::search_service::TextCriteria;
+    use crate::search::service::TextCriteria;
     use std::fs;
     use tempfile::tempdir;
 
@@ -1762,7 +1762,7 @@ mod tests {
                     overlay_count: 0,
                 }),
                 EditorCoreEvent::SmartGutterIndicatorsUpdated(
-                    crate::smart_gutter_service::SmartGutterIndicatorsUpdatedEvent {
+                    crate::editor::smart_gutter::SmartGutterIndicatorsUpdatedEvent {
                         file_path: PathBuf::from("docs/readme.md"),
                         indicator_count: 0,
                     },
@@ -1984,8 +1984,8 @@ mod tests {
                     file_path: PathBuf::from("docs/readme.md"),
                     focus_id: "focus-ai-1".to_string(),
                     targets: vec![
-                        crate::minimap_service::FocusSyncTarget::CommandHub,
-                        crate::minimap_service::FocusSyncTarget::StructurePath,
+                        crate::editor::minimap::FocusSyncTarget::CommandHub,
+                        crate::editor::minimap::FocusSyncTarget::StructurePath,
                     ],
                 }
             )]
@@ -2027,7 +2027,7 @@ mod tests {
         core.insert_text("\nfour");
         core.update_minimap_overlays(vec![MinimapOverlay::ai_diff(4, "focus-ai-1")]);
         core.update_smart_gutter_indicators(vec![
-            crate::smart_gutter_service::SmartGutterIndicator::ai_diff(
+            crate::editor::smart_gutter::SmartGutterIndicator::ai_diff(
                 4,
                 "focus-ai-1",
                 "approval-1",
@@ -2053,7 +2053,7 @@ mod tests {
                     overlay_count: 0,
                 }),
                 EditorCoreEvent::SmartGutterIndicatorsUpdated(
-                    crate::smart_gutter_service::SmartGutterIndicatorsUpdatedEvent {
+                    crate::editor::smart_gutter::SmartGutterIndicatorsUpdatedEvent {
                         file_path: PathBuf::from("docs/readme.txt"),
                         indicator_count: 0,
                     },
@@ -2076,12 +2076,12 @@ mod tests {
 
         assert_eq!(
             core.update_smart_gutter_indicators(vec![
-                crate::smart_gutter_service::SmartGutterIndicator::ai_diff(
+                crate::editor::smart_gutter::SmartGutterIndicator::ai_diff(
                     2,
                     "focus-ai-1",
                     "approval-1",
                 ),
-                crate::smart_gutter_service::SmartGutterIndicator::git_diff(4, "focus-git-1"),
+                crate::editor::smart_gutter::SmartGutterIndicator::git_diff(4, "focus-git-1"),
             ]),
             UpdateSmartGutterIndicatorsOutcome::Updated { indicator_count: 2 }
         );
@@ -2095,18 +2095,18 @@ mod tests {
             core.drain_events(),
             vec![
                 EditorCoreEvent::SmartGutterIndicatorsUpdated(
-                    crate::smart_gutter_service::SmartGutterIndicatorsUpdatedEvent {
+                    crate::editor::smart_gutter::SmartGutterIndicatorsUpdatedEvent {
                         file_path: PathBuf::from("docs/readme.md"),
                         indicator_count: 2,
                     },
                 ),
                 EditorCoreEvent::SmartGutterFocusIdSynced(
-                    crate::smart_gutter_service::SmartGutterFocusIdSyncedEvent {
+                    crate::editor::smart_gutter::SmartGutterFocusIdSyncedEvent {
                         file_path: PathBuf::from("docs/readme.md"),
                         focus_id: "focus-ai-1".to_string(),
                         targets: vec![
-                            crate::smart_gutter_service::SmartGutterSyncTarget::CommandHub,
-                            crate::smart_gutter_service::SmartGutterSyncTarget::StructurePath,
+                            crate::editor::smart_gutter::SmartGutterSyncTarget::CommandHub,
+                            crate::editor::smart_gutter::SmartGutterSyncTarget::StructurePath,
                         ],
                     },
                 ),
@@ -2119,12 +2119,12 @@ mod tests {
         let mut core = EditorCore::new();
         core.open_file("docs/readme.md", "one\ntwo\nthree\nfour");
         core.update_smart_gutter_indicators(vec![
-            crate::smart_gutter_service::SmartGutterIndicator::ai_diff(
+            crate::editor::smart_gutter::SmartGutterIndicator::ai_diff(
                 2,
                 "focus-ai-1",
                 "approval-1",
             ),
-            crate::smart_gutter_service::SmartGutterIndicator::git_diff(4, "focus-git-1"),
+            crate::editor::smart_gutter::SmartGutterIndicator::git_diff(4, "focus-git-1"),
         ]);
         core.drain_events();
 
@@ -2146,20 +2146,20 @@ mod tests {
             core.drain_events(),
             vec![
                 EditorCoreEvent::SmartGutterJumpRequested(
-                    crate::smart_gutter_service::SmartGutterJumpRequestedEvent {
+                    crate::editor::smart_gutter::SmartGutterJumpRequestedEvent {
                         file_path: PathBuf::from("docs/readme.md"),
                         focus_id: "focus-git-1".to_string(),
                         line: 4,
                     },
                 ),
                 EditorCoreEvent::SmartGutterApprovalRequestOpened(
-                    crate::smart_gutter_service::SmartGutterApprovalRequestOpenedEvent {
+                    crate::editor::smart_gutter::SmartGutterApprovalRequestOpenedEvent {
                         file_path: PathBuf::from("docs/readme.md"),
                         focus_id: "focus-ai-1".to_string(),
                         approval_request_id: "approval-1".to_string(),
                         targets: vec![
-                            crate::smart_gutter_service::SmartGutterSyncTarget::CommandHub,
-                            crate::smart_gutter_service::SmartGutterSyncTarget::StructurePath,
+                            crate::editor::smart_gutter::SmartGutterSyncTarget::CommandHub,
+                            crate::editor::smart_gutter::SmartGutterSyncTarget::StructurePath,
                         ],
                     },
                 ),

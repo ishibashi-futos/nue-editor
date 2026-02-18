@@ -1,12 +1,12 @@
 use crate::{
-    command_hub::{
+    command::state::{
         CommandHubSession, CommandMode, ParsedCommand, PickerCancelOutcome, PickerCandidate,
         PickerExecuteOutcome,
     },
-    pane_manager::{
+    layout::pane_manager::{
         PaneItem, PaneLayoutSnapshot, PaneManager, PaneManagerError, PaneSplitDirection,
     },
-    tab_manager::{DEFAULT_HISTORY_CAPACITY, TabManager, TabManagerError, TabSnapshot},
+    layout::tab_manager::{DEFAULT_HISTORY_CAPACITY, TabManager, TabManagerError, TabSnapshot},
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -1477,8 +1477,8 @@ fn resolve_selected_open_target(value: &str) -> Result<SelectedOpenTarget, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command_hub::{CommandHubSession, PickerCandidate};
-    use crate::pane_manager::{PaneItem, PaneSplitDirection};
+    use crate::command::state::{CommandHubSession, PickerCandidate};
+    use crate::layout::pane_manager::{PaneItem, PaneSplitDirection};
     use std::cell::RefCell;
     use std::rc::Rc;
 

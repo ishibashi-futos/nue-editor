@@ -3,7 +3,7 @@
 
 use std::ops::Rem;
 
-use crate::search_service::{SearchMatch, SearchQuery};
+use crate::search::service::{SearchMatch, SearchQuery};
 
 /// 現在の検索結果とフォーカス位置を保持するコンテキスト。
 #[derive(Debug, Clone)]

@@ -1,5 +1,5 @@
-use nue_core::workspace_rail::WorkspaceRailState;
-use nue_core::workspace_registry::{
+use nue_core::workspace::rail::WorkspaceRailState;
+use nue_core::workspace::registry::{
     ExcludeWorkspaceOutcome, WorkspacePathValidation, WorkspaceRegistry,
 };
 
@@ -76,8 +76,8 @@ impl WorkspaceRailConnector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nue_core::workspace_rail::WorkspaceRailState;
-    use nue_core::workspace_registry::{AddWorkspaceOutcome, WorkspacePathValidation};
+    use nue_core::workspace::rail::WorkspaceRailState;
+    use nue_core::workspace::registry::{AddWorkspaceOutcome, WorkspacePathValidation};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};

@@ -1,7 +1,7 @@
 use crate::{
-    pane_history::PaneHistorySnapshot,
-    pane_manager::{PaneLayoutRestoreError, PaneLayoutSnapshot, PaneManager},
-    tab_manager::{DEFAULT_HISTORY_CAPACITY, TabManager, TabSnapshot},
+    layout::pane_history::PaneHistorySnapshot,
+    layout::pane_manager::{PaneLayoutRestoreError, PaneLayoutSnapshot, PaneManager},
+    layout::tab_manager::{DEFAULT_HISTORY_CAPACITY, TabManager, TabSnapshot},
 };
 use serde::{Deserialize, Serialize};
 
@@ -49,8 +49,8 @@ impl SessionState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pane_manager::{PaneItem, PaneManager, PaneSplitDirection};
-    use crate::tab_manager::{TabDefinition, TabManager};
+    use crate::layout::pane_manager::{PaneItem, PaneManager, PaneSplitDirection};
+    use crate::layout::tab_manager::{TabDefinition, TabManager};
 
     fn build_two_pane_manager() -> PaneManager {
         PaneManager::from_items(vec![

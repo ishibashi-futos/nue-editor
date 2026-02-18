@@ -1,14 +1,14 @@
-use nue_core::command_hub::{
-    CommandHubSession, CommandHubSessionSnapshot, PickerSelectOutcome, PickerViewState,
-    parse_command,
-};
-use nue_core::command_hub_actions::{
+use nue_core::command::actions::{
     CommandActionError, CommandActionEvent, CommandHubActionModel, CommandHubDispatchOutcome,
     PanelTarget, TerminalItem, WorkspaceItem, dispatch_cancel_action, dispatch_confirmed_action,
     dispatch_selected_action,
 };
-use nue_core::pane_manager::PaneItem;
-use nue_core::tab_manager::TabSnapshot;
+use nue_core::command::state::{
+    CommandHubSession, CommandHubSessionSnapshot, PickerSelectOutcome, PickerViewState,
+    parse_command,
+};
+use nue_core::layout::pane_manager::PaneItem;
+use nue_core::layout::tab_manager::TabSnapshot;
 
 /// Command Hub の UI で必要なオーバーレイ操作を表現する。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -314,8 +314,8 @@ fn message_for_error(error: &CommandActionError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nue_core::command_hub_actions::CommandActionEvent;
-    use nue_core::command_hub_actions::{CommandActionError, CommandHubDispatchOutcome};
+    use nue_core::command::actions::CommandActionEvent;
+    use nue_core::command::actions::{CommandActionError, CommandHubDispatchOutcome};
 
     fn sample_action_model() -> CommandHubActionModel {
         CommandHubActionModel::new(

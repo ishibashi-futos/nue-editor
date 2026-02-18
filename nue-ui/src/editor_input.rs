@@ -1,8 +1,8 @@
-use nue_core::editor_core::{
+use nue_core::editor::core::{
     EditorContextMenuItem, EditorCore, ExecuteEditorContextMenuOutcome,
     ExecuteMarkdownFeatureOutcome, KeyChord, OpenEditorContextMenuOutcome, ShortcutDispatchOutcome,
 };
-use nue_core::markdown_service::MarkdownFeature;
+use nue_core::editor::markdown::MarkdownFeature;
 
 /// EditorCore への入力操作を UI から抽象化するコントローラ。
 pub struct EditorInputController<'a> {
@@ -81,12 +81,12 @@ impl<'a> EditorInputController<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nue_core::editor_core::{
+    use nue_core::editor::core::{
         CommandExecutionOutcome, CopyOutcome, EditorCommand, EditorContextMenuItem,
         ExecuteEditorContextMenuOutcome, ExecuteMarkdownFeatureOutcome, KeyChord, KeyModifier,
         OpenEditorContextMenuOutcome, SaveOutcome,
     };
-    use nue_core::markdown_service::MarkdownFeature;
+    use nue_core::editor::markdown::MarkdownFeature;
     use std::path::PathBuf;
 
     fn sample_path(name: &str, ext: &str) -> PathBuf {

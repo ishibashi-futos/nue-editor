@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::git_status::GitFileStatus;
+use crate::workspace::git_status::GitFileStatus;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LegacyFileTreeNode {
@@ -203,7 +203,7 @@ mod tests {
     use super::{
         LegacyFileTree, LegacyFileTreeBuildError, LegacyFileTreeNode, LegacyFileTreeNodeKind,
     };
-    use crate::git_status::GitFileStatus;
+    use crate::workspace::git_status::GitFileStatus;
     use std::collections::HashMap;
     use std::fs;
     #[cfg(unix)]

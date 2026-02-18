@@ -1,4 +1,4 @@
-use crate::pane_history::{PaneHistory, PaneHistorySnapshot};
+use crate::layout::pane_history::{PaneHistory, PaneHistorySnapshot};
 use serde::{Deserialize, Serialize};
 
 const HISTORY_CAPACITY: usize = 32;

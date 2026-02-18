@@ -1,6 +1,6 @@
-use nue_core::git_status::GitFileStatus;
-use nue_core::legacy_file_tree::{LegacyFileTreeNodeKind, LegacyFileTreeNodeStatus};
-use nue_core::legacy_workspace_editor::{LegacyWorkspaceEditor, SelectFileOutcome};
+use nue_core::workspace::git_status::GitFileStatus;
+use nue_core::workspace::legacy_file_tree::{LegacyFileTreeNodeKind, LegacyFileTreeNodeStatus};
+use nue_core::workspace::legacy_workspace_editor::{LegacyWorkspaceEditor, SelectFileOutcome};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,7 +95,7 @@ impl LegacyExplorerModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nue_core::legacy_workspace_editor::LegacyWorkspaceEditor;
+    use nue_core::workspace::legacy_workspace_editor::LegacyWorkspaceEditor;
     use std::fs;
     use tempfile::TempDir;
 

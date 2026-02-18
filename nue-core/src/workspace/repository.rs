@@ -1,4 +1,4 @@
-use crate::git_status::{GitChangeKind, collect_git_status_entries};
+use crate::workspace::git_status::{GitChangeKind, collect_git_status_entries};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};

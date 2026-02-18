@@ -1,6 +1,6 @@
 use nue_core::{
-    structure_path::{StructurePathAgentStatus, StructurePathDiffState},
-    workspace_rail::WorkspaceRailState,
+    editor::structure_path::{StructurePathAgentStatus, StructurePathDiffState},
+    workspace::rail::WorkspaceRailState,
 };
 
 use crate::design_system::{

@@ -1,9 +1,11 @@
-use crate::editor_core::{
+use crate::editor::core::{
     CursorMoveOutcome, EditOutcome, EditorBufferSnapshot, EditorCore, HistoryOutcome,
     MarkSavedOutcome, SaveOutcome, SaveTrigger,
 };
-use crate::git_status::collect_git_statuses;
-use crate::legacy_file_tree::{LegacyFileTree, LegacyFileTreeBuildError, LegacyFileTreeNodeStatus};
+use crate::workspace::git_status::collect_git_statuses;
+use crate::workspace::legacy_file_tree::{
+    LegacyFileTree, LegacyFileTreeBuildError, LegacyFileTreeNodeStatus,
+};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -198,9 +200,9 @@ fn create_unique_temp_path(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editor_core::{CursorMoveOutcome, EditOutcome, HistoryOutcome};
-    use crate::git_status::GitFileStatus;
-    use crate::legacy_file_tree::LegacyFileTreeNodeKind;
+    use crate::editor::core::{CursorMoveOutcome, EditOutcome, HistoryOutcome};
+    use crate::workspace::git_status::GitFileStatus;
+    use crate::workspace::legacy_file_tree::LegacyFileTreeNodeKind;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
     use std::path::Path;

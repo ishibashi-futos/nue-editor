@@ -1,4 +1,4 @@
-use crate::workspace_rail::{
+use crate::workspace::rail::{
     TransitionOutcome, WorkspaceMetadata, WorkspaceRailModel, WorkspaceRailState,
 };
 use std::collections::VecDeque;
@@ -297,7 +297,7 @@ fn workspace_display_name(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspace_rail::WorkspaceRailState;
+    use crate::workspace::rail::WorkspaceRailState;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 

@@ -1,4 +1,6 @@
-use nue_core::tab_manager::{DEFAULT_HISTORY_CAPACITY, TabManager, TabManagerError, TabSnapshot};
+use nue_core::layout::tab_manager::{
+    DEFAULT_HISTORY_CAPACITY, TabManager, TabManagerError, TabSnapshot,
+};
 
 /// UI/ショートカット/Command Hubのいずれからも呼び出可能なタブ操作を抽象化するモジュール。
 ///
@@ -220,6 +222,12 @@ impl TabBarUiController {
     }
 }
 
+impl Default for TabBarUiController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl From<TabManagerError> for TabActionError {
     fn from(error: TabManagerError) -> Self {
         match error {
@@ -261,7 +269,7 @@ mod tests {
     #[test]
     fn pin_toggle_shortcut_tracks_current_state() {
         let mut controller = TabBarUiController::from_snapshots(sample_tabs());
-        assert_eq!(controller.tabs()[0].pinned, false);
+        assert!(!controller.tabs()[0].pinned);
 
         let event = controller
             .handle_keyboard_shortcut(TabKeyboardShortcut::PinToggle)
