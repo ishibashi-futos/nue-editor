@@ -1,9 +1,12 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::env;
 use std::fmt;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use crate::terminal::scrollback::{Scrollback, ScrollbackLine};
+
+mod context;
+use context::{normalize_path, validate_run_command_context};
 
 pub type TerminalCommandId = u64;
 pub type TerminalAuditId = u64;
@@ -268,7 +271,7 @@ impl TerminalSession {
     ) -> Self {
         let workspace_path = workspace_root.into();
         let normalized_root =
-            Self::normalize_path(&workspace_path).unwrap_or_else(|| workspace_path.clone());
+            normalize_path(&workspace_path).unwrap_or_else(|| workspace_path.clone());
 
         Self {
             workspace_session_id: workspace_session_id.into(),
@@ -300,7 +303,9 @@ impl TerminalSession {
     }
 
     pub fn enqueue_run_command(&mut self, request: RunCommandRequest) -> QueueCommandOutcome {
-        if let Err(error) = self.validate_run_command_context(&request) {
+        if let Err(error) =
+            validate_run_command_context(&self.workspace_root, &self.workspace_env, &request)
+        {
             let agent_id = request.agent_id.clone();
             let command_line = request.command_line.clone();
             let audit_error = error.clone();
@@ -530,82 +535,6 @@ impl TerminalSession {
                 message: message.into(),
             },
         ));
-    }
-
-    fn normalize_path(path: &Path) -> Option<PathBuf> {
-        let mut normalized = PathBuf::new();
-        let mut normal_segments = 0;
-
-        for component in path.components() {
-            match component {
-                Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
-                Component::RootDir => normalized.push(component.as_os_str()),
-                Component::CurDir => {}
-                Component::ParentDir => {
-                    if normal_segments == 0 {
-                        return None;
-                    }
-                    normalized.pop();
-                    normal_segments -= 1;
-                }
-                Component::Normal(part) => {
-                    normalized.push(part);
-                    normal_segments += 1;
-                }
-            }
-        }
-
-        Some(normalized)
-    }
-
-    fn validate_run_command_context(
-        &self,
-        request: &RunCommandRequest,
-    ) -> Result<(), RunCommandContextError> {
-        if let Some(cwd) = &request.cwd {
-            if cwd
-                .components()
-                .any(|component| matches!(component, Component::ParentDir))
-            {
-                return Err(RunCommandContextError::InvalidCwd {
-                    attempted: cwd.clone(),
-                    workspace_root: self.workspace_root.clone(),
-                });
-            }
-
-            let normalized =
-                Self::normalize_path(cwd).ok_or_else(|| RunCommandContextError::InvalidCwd {
-                    attempted: cwd.clone(),
-                    workspace_root: self.workspace_root.clone(),
-                })?;
-
-            if normalized != self.workspace_root {
-                return Err(RunCommandContextError::InvalidCwd {
-                    attempted: cwd.clone(),
-                    workspace_root: self.workspace_root.clone(),
-                });
-            }
-        }
-
-        for (key, value) in request.env_overrides.iter() {
-            match self.workspace_env.get(key) {
-                None => {
-                    return Err(RunCommandContextError::UnauthorizedEnvAddition {
-                        key: key.clone(),
-                    });
-                }
-                Some(expected) if expected != value => {
-                    return Err(RunCommandContextError::UnauthorizedEnvModification {
-                        key: key.clone(),
-                        expected: expected.clone(),
-                        attempted: value.clone(),
-                    });
-                }
-                _ => {}
-            }
-        }
-
-        Ok(())
     }
 
     /// 紐づくワークスペースセッションの識別子。

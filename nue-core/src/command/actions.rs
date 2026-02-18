@@ -10,6 +10,12 @@ use crate::{
 };
 use std::{cell::RefCell, rc::Rc};
 
+mod target_lookup;
+use target_lookup::{
+    normalized_lookup, pane_index_by_target, tab_index_by_target, terminal_index_by_target,
+    workspace_index_by_target,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelTarget {
     Explorer,
@@ -1272,40 +1278,6 @@ fn active_index<T>(items: &[T], is_active: impl Fn(&T) -> bool) -> Option<usize>
     items.iter().position(is_active)
 }
 
-fn normalized_lookup(value: &str) -> String {
-    value
-        .trim()
-        .to_ascii_lowercase()
-        .split_whitespace()
-        .collect::<Vec<&str>>()
-        .join(" ")
-}
-
-fn workspace_index_by_target(workspaces: &[WorkspaceItem], target: &str) -> Option<usize> {
-    let normalized_target = normalized_lookup(target);
-    workspaces.iter().position(|workspace| {
-        normalized_lookup(workspace.id.as_str()) == normalized_target
-            || normalized_lookup(workspace.display_name.as_str()) == normalized_target
-            || normalized_lookup(workspace.root_path.as_str()) == normalized_target
-    })
-}
-
-fn pane_index_by_target(panes: &[PaneItem], target: &str) -> Option<usize> {
-    let normalized_target = normalized_lookup(target);
-    panes.iter().position(|pane| {
-        normalized_lookup(pane.id.as_str()) == normalized_target
-            || normalized_lookup(pane.title.as_str()) == normalized_target
-    })
-}
-
-fn terminal_index_by_target(terminals: &[TerminalItem], target: &str) -> Option<usize> {
-    let normalized_target = normalized_lookup(target);
-    terminals.iter().position(|terminal| {
-        normalized_lookup(terminal.id.as_str()) == normalized_target
-            || normalized_lookup(terminal.title.as_str()) == normalized_target
-    })
-}
-
 fn tab_candidate_for_tab(
     tab: &TabSnapshot,
     verb: &str,
@@ -1351,14 +1323,6 @@ fn tab_candidates_for_target(
         verb,
         requires_confirmation,
     )]
-}
-
-fn tab_index_by_target(tabs: &[TabSnapshot], target: &str) -> Option<usize> {
-    let normalized_target = normalized_lookup(target);
-    tabs.iter().position(|tab| {
-        normalized_lookup(tab.id.as_str()) == normalized_target
-            || normalized_lookup(tab.title.as_str()) == normalized_target
-    })
 }
 
 fn tab_error_to_action_error(tab_id: &str, error: TabManagerError) -> CommandActionError {

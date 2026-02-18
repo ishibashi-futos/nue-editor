@@ -1,4 +1,5 @@
 pub mod core;
+pub(crate) mod core_support;
 pub mod focus;
 pub mod markdown;
 pub mod minimap;
