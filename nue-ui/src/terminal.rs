@@ -1,21 +1,106 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 
 use nue_core::terminal_scrollback::ScrollbackLine;
 use nue_core::terminal_session::{
-    QueueCommandOutcome, RunCommandRequest, TerminalCommandId, TerminalCommandSnapshot,
-    TerminalSession, TerminalSessionEvent, ToolExecutionConfig,
+    QueueCommandOutcome, QueueInterruptionReason, QueueRejectionReason, RunCommandRequest,
+    TerminalAuditEvent, TerminalAuditId, TerminalAuditPayload, TerminalCommandId,
+    TerminalCommandSnapshot, TerminalCommandState, TerminalSession, TerminalSessionEvent,
+    ToolExecutionConfig,
 };
 
-#[cfg(test)]
-use nue_core::terminal_session::{
-    QueueInterruptionReason, QueueRejectionReason, TerminalAuditEvent, TerminalAuditPayload,
-};
+/// TerminalAuditEvent を UI で表示しやすく整形した結果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalAuditMessage {
+    pub id: TerminalAuditId,
+    pub workspace_session_id: String,
+    pub payload: TerminalAuditPayload,
+    pub summary: String,
+}
+
+impl TerminalAuditMessage {
+    fn from_event(event: &TerminalAuditEvent) -> Self {
+        Self {
+            id: event.id,
+            workspace_session_id: event.workspace_session_id.clone(),
+            payload: event.payload.clone(),
+            summary: summarize_audit_payload(&event.payload),
+        }
+    }
+}
+
+fn summarize_audit_payload(payload: &TerminalAuditPayload) -> String {
+    match payload {
+        TerminalAuditPayload::QueueTransition {
+            command_line,
+            agent_id,
+            state,
+            queue_length,
+            ..
+        } => format!(
+            "run_command `{}` (agent {}) が{}（キュー長：{}）",
+            command_line,
+            agent_id,
+            describe_state(*state),
+            queue_length
+        ),
+        TerminalAuditPayload::QueueRejected { reason } => format_queue_rejection(reason),
+        TerminalAuditPayload::QueueInterrupted {
+            command_line,
+            agent_id,
+            reason,
+            ..
+        } => format!(
+            "run_command `{}` (agent {}) は{}により中断されました。",
+            command_line,
+            agent_id,
+            describe_interruption(reason),
+        ),
+    }
+}
+
+fn format_queue_rejection(reason: &QueueRejectionReason) -> String {
+    match reason {
+        QueueRejectionReason::QueueFull {
+            queue_max_pending,
+            agent_id,
+            command_line,
+        } => format!(
+            "run_command `{}` (agent {}) はキュー上限({}) に達したため拒否されました。",
+            command_line, agent_id, queue_max_pending
+        ),
+        QueueRejectionReason::ContextViolation {
+            error,
+            agent_id,
+            command_line,
+        } => format!(
+            "run_command `{}` (agent {}) はコンテキスト制約で拒否されました：{}",
+            command_line, agent_id, error
+        ),
+    }
+}
+
+fn describe_state(state: TerminalCommandState) -> &'static str {
+    match state {
+        TerminalCommandState::Queued => "キューに入りました",
+        TerminalCommandState::Running => "実行を開始しました",
+        TerminalCommandState::Completed => "完了しました",
+        TerminalCommandState::Failed => "失敗しました",
+    }
+}
+
+fn describe_interruption(reason: &QueueInterruptionReason) -> &'static str {
+    match reason {
+        QueueInterruptionReason::Failed => "失敗",
+        QueueInterruptionReason::Cancelled => "キャンセル",
+    }
+}
 
 /// ターミナルセッションを UI から操作するためのコントローラ。
 #[derive(Debug)]
 pub struct TerminalUiController {
     session: TerminalSession,
+    pending_audit_messages: VecDeque<TerminalAuditMessage>,
 }
 
 impl TerminalUiController {
@@ -30,6 +115,7 @@ impl TerminalUiController {
                 workspace_root,
                 BTreeMap::new(),
             ),
+            pending_audit_messages: VecDeque::new(),
         }
     }
 
@@ -46,6 +132,7 @@ impl TerminalUiController {
                 workspace_root,
                 BTreeMap::new(),
             ),
+            pending_audit_messages: VecDeque::new(),
         }
     }
 
@@ -86,7 +173,19 @@ impl TerminalUiController {
 
     /// 直近に生成されたステータス/通知イベントを取り出す。
     pub fn drain_events(&mut self) -> Vec<TerminalSessionEvent> {
-        self.session.drain_events()
+        let events = self.session.drain_events();
+        for event in &events {
+            if let TerminalSessionEvent::Audit(audit) = event {
+                self.pending_audit_messages
+                    .push_back(TerminalAuditMessage::from_event(audit));
+            }
+        }
+        events
+    }
+
+    /// 直近の監査イベントを UI 表示用に取得する。
+    pub fn drain_audit_messages(&mut self) -> Vec<TerminalAuditMessage> {
+        self.pending_audit_messages.drain(..).collect()
     }
 
     /// 実行出力をスクロールバックに追加する。
@@ -345,6 +444,98 @@ mod tests {
                 .last_scrollback_line()
                 .map(|line| line.raw().to_string()),
             Some("次の行".to_string())
+        );
+    }
+
+    #[test]
+    fn drain_audit_messages_formats_transitions() {
+        let mut controller =
+            TerminalUiController::new("workspace-session-audit", "/workspace-session-audit");
+
+        controller.run_command("agent-a", "cargo test");
+        controller.run_command("agent-b", "cargo clippy");
+
+        controller.drain_events();
+        let audit_messages = controller.drain_audit_messages();
+
+        assert_eq!(audit_messages.len(), 2);
+        assert_eq!(
+            audit_messages[0].summary,
+            "run_command `cargo test` (agent agent-a) が実行を開始しました（キュー長：0）"
+        );
+        assert_eq!(
+            audit_messages[1].summary,
+            "run_command `cargo clippy` (agent agent-b) がキューに入りました（キュー長：1）"
+        );
+        assert!(controller.drain_audit_messages().is_empty());
+    }
+
+    #[test]
+    fn drain_audit_messages_formats_queue_rejections() {
+        let mut controller = TerminalUiController::with_queue_max_pending(
+            "workspace-session-reject",
+            "/workspace-session-reject",
+            2,
+        );
+
+        controller.run_command("agent-a", "cmd-1");
+        controller.run_command("agent-b", "cmd-2");
+        controller.run_command("agent-c", "cmd-3");
+
+        controller.drain_events();
+        controller.drain_audit_messages();
+
+        let _ = controller.run_command("agent-d", "cmd-4");
+        controller.drain_events();
+        let audit_messages = controller.drain_audit_messages();
+
+        assert_eq!(audit_messages.len(), 1);
+        assert_eq!(
+            audit_messages[0].summary,
+            "run_command `cmd-4` (agent agent-d) はキュー上限(2) に達したため拒否されました。"
+        );
+
+        if let TerminalAuditPayload::QueueRejected { reason } = &audit_messages[0].payload {
+            match reason {
+                QueueRejectionReason::QueueFull {
+                    queue_max_pending,
+                    agent_id,
+                    command_line,
+                } => {
+                    assert_eq!(*queue_max_pending, 2);
+                    assert_eq!(agent_id, "agent-d");
+                    assert_eq!(command_line, "cmd-4");
+                }
+                _ => panic!("unexpected rejection reason"),
+            }
+        } else {
+            panic!("expected QueueRejected payload");
+        }
+    }
+
+    #[test]
+    fn drain_audit_messages_formats_interruptions() {
+        let mut controller = TerminalUiController::new(
+            "workspace-session-interrupt",
+            "/workspace-session-interrupt",
+        );
+
+        controller.run_command("agent-z", "cmd-1");
+        controller.drain_events();
+        controller.drain_audit_messages();
+
+        controller.complete_running_command(false);
+        controller.drain_events();
+        let audit_messages = controller.drain_audit_messages();
+
+        assert_eq!(audit_messages.len(), 2);
+        assert_eq!(
+            audit_messages[0].summary,
+            "run_command `cmd-1` (agent agent-z) が失敗しました（キュー長：0）"
+        );
+        assert_eq!(
+            audit_messages[1].summary,
+            "run_command `cmd-1` (agent agent-z) は失敗により中断されました。"
         );
     }
 }
