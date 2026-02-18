@@ -1,9 +1,12 @@
+use nue_core::command_hub::{
+    CommandHubSession, CommandHubSessionSnapshot, PickerSelectOutcome, PickerViewState,
+    parse_command,
+};
 use nue_core::command_hub_actions::{
     CommandActionError, CommandActionEvent, CommandHubActionModel, CommandHubDispatchOutcome,
     PanelTarget, TerminalItem, WorkspaceItem, dispatch_cancel_action, dispatch_confirmed_action,
     dispatch_selected_action,
 };
-use nue_core::command_hub::{parse_command, CommandHubSession, CommandHubSessionSnapshot, PickerSelectOutcome, PickerViewState};
 use nue_core::pane_manager::PaneItem;
 use nue_core::tab_manager::TabSnapshot;
 
@@ -113,9 +116,10 @@ impl CommandHubUiTransition {
 }
 
 /// オーバーレイの現在状態を表す列挙型。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum CommandHubOverlayState {
     /// オーバーレイが閉じている。
+    #[default]
     Closed,
     /// 候補一覧を開いている。
     Listing { candidate_id: Option<String> },
@@ -123,28 +127,12 @@ pub enum CommandHubOverlayState {
     Confirmation { candidate_id: String },
 }
 
-impl Default for CommandHubOverlayState {
-    fn default() -> Self {
-        Self::Closed
-    }
-}
-
 /// UI が保持する Command Hub の制御状態。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CommandHubUiState {
     pub overlay_state: CommandHubOverlayState,
     pub notification: Option<CommandHubNotification>,
     pub executed_event: Option<CommandActionEvent>,
-}
-
-impl Default for CommandHubUiState {
-    fn default() -> Self {
-        Self {
-            overlay_state: CommandHubOverlayState::default(),
-            notification: None,
-            executed_event: None,
-        }
-    }
 }
 
 impl CommandHubUiState {
@@ -205,6 +193,7 @@ impl CommandHubUiController {
         let parsed = parse_command(&input);
         let candidates = self.action_model.candidates_for(&parsed);
         self.session.apply_input(input, candidates);
+        self.sync_overlay_state_with_picker();
     }
 
     /// 次の候補をフォーカスする。
@@ -253,29 +242,56 @@ impl CommandHubUiController {
     /// モデルの Workspaces を差し替える。
     pub fn update_workspaces(&mut self, workspaces: Vec<WorkspaceItem>) {
         self.action_model.set_workspaces(workspaces);
+        self.refresh_candidates_for_current_input();
     }
 
     /// モデルの Pane 情報を差し替える。
     pub fn update_panes(&mut self, panes: Vec<PaneItem>) {
         self.action_model.set_panes(panes);
+        self.refresh_candidates_for_current_input();
     }
 
     /// モデルの Terminal 情報を差し替える。
     pub fn update_terminals(&mut self, terminals: Vec<TerminalItem>) {
         self.action_model.set_terminals(terminals);
+        self.refresh_candidates_for_current_input();
     }
 
     /// モデルの Tab 情報を差し替える。
     pub fn update_tabs(&mut self, tabs: Vec<TabSnapshot>) {
         self.action_model.set_tabs(tabs);
+        self.refresh_candidates_for_current_input();
     }
 
     /// モデルのフォーカスパネル状態を更新する。
     pub fn update_focused_panel(&mut self, panel: Option<PanelTarget>) {
         self.action_model.set_focused_panel(panel);
     }
-}
 
+    fn refresh_candidates_for_current_input(&mut self) {
+        let input = self.session.snapshot().input;
+        let parsed = parse_command(&input);
+        let candidates = self.action_model.candidates_for(&parsed);
+        self.session.apply_input(input, candidates);
+        self.sync_overlay_state_with_picker();
+    }
+
+    fn sync_overlay_state_with_picker(&mut self) {
+        let picker = self.session.snapshot().picker;
+        self.ui_state.overlay_state = match picker.state {
+            PickerViewState::Closed => CommandHubOverlayState::Closed,
+            PickerViewState::Listing => CommandHubOverlayState::Listing {
+                candidate_id: picker.selected_candidate_id,
+            },
+            PickerViewState::Confirming => {
+                let Some(candidate_id) = picker.selected_candidate_id else {
+                    return;
+                };
+                CommandHubOverlayState::Confirmation { candidate_id }
+            }
+        };
+    }
+}
 
 fn message_for_error(error: &CommandActionError) -> String {
     match error {
@@ -336,11 +352,19 @@ mod tests {
         let snapshot = controller.picker_snapshot();
         assert_eq!(snapshot.picker.state, PickerViewState::Listing);
         assert_eq!(snapshot.picker.visible_candidates.len(), 1);
-        assert!(snapshot
-            .picker
-            .visible_candidates
-            .iter()
-            .any(|candidate| candidate.requires_confirmation));
+        assert_eq!(
+            controller.ui_state().overlay_state,
+            CommandHubOverlayState::Listing {
+                candidate_id: Some("workspace::workspace-1".to_string()),
+            }
+        );
+        assert!(
+            snapshot
+                .picker
+                .visible_candidates
+                .iter()
+                .any(|candidate| candidate.requires_confirmation)
+        );
     }
 
     #[test]
@@ -522,5 +546,30 @@ mod tests {
             }
         );
         assert!(state.executed_event.is_none());
+    }
+
+    #[test]
+    fn update_workspacesは表示中候補を再構築する() {
+        let mut controller = CommandHubUiController::new(sample_action_model());
+        controller.apply_input("> workspace: list");
+
+        controller.update_workspaces(vec![WorkspaceItem {
+            id: "workspace-2".to_string(),
+            display_name: "Docs".to_string(),
+            root_path: "/repo/docs".to_string(),
+            is_active: true,
+        }]);
+
+        let snapshot = controller.picker_snapshot();
+        assert_eq!(snapshot.picker.state, PickerViewState::Listing);
+        assert_eq!(
+            snapshot.picker.selected_candidate_id,
+            Some("workspace::workspace-2".to_string())
+        );
+        assert_eq!(snapshot.picker.visible_candidates.len(), 1);
+        assert_eq!(
+            snapshot.picker.visible_candidates[0].id,
+            "workspace::workspace-2"
+        );
     }
 }
