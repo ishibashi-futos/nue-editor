@@ -151,6 +151,7 @@ pub enum DiffSurface {
     SmartGutter,
     ApprovalUi,
     Gutter,
+    StructurePath,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -668,6 +669,9 @@ fn diff_emphasis_for_surface(surface: DiffSurface, state: DiffState) -> u8 {
         (DiffSurface::Gutter, DiffState::Pending) => 72,
         (DiffSurface::Gutter, DiffState::Approved) => 68,
         (DiffSurface::Gutter, DiffState::Neutral) => 58,
+        (DiffSurface::StructurePath, DiffState::Pending) => 70,
+        (DiffSurface::StructurePath, DiffState::Approved) => 66,
+        (DiffSurface::StructurePath, DiffState::Neutral) => 56,
     }
 }
 
@@ -968,6 +972,17 @@ mod tests {
         assert_eq!(style.state, DiffState::Neutral);
         assert_eq!(style.color.hex, "#F8F9FA");
         assert_eq!(style.emphasis_percent, 58);
+    }
+
+    #[test]
+    fn diff_styleはstructure_path向け承認済みスタイルを返す() {
+        let design_system = DesignSystem::neon_night_glass();
+        let style = design_system.diff_style_for(DiffSurface::StructurePath, DiffState::Approved);
+
+        assert_eq!(style.surface, DiffSurface::StructurePath);
+        assert_eq!(style.state, DiffState::Approved);
+        assert_eq!(style.color.hex, "#32FF7E");
+        assert_eq!(style.emphasis_percent, 66);
     }
 
     #[test]
