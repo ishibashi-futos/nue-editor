@@ -47,6 +47,9 @@ pub enum CommandActionEvent {
     WorkspaceRemoved {
         workspace_id: String,
     },
+    PaneOpened {
+        pane_id: String,
+    },
     PaneSplit {
         pane_id: String,
         direction: PaneSplitDirection,
@@ -86,6 +89,11 @@ pub enum CommandActionEvent {
     },
     TabClosedToRight {
         tab_id: String,
+    },
+    TabMoved {
+        tab_id: String,
+        from_pane_id: String,
+        to_pane_id: String,
     },
     TabReopened {
         tab_id: String,
@@ -177,7 +185,7 @@ impl CommandHubStateSink for CommandHubStateStoreSink {
     }
 }
 
-/// Command Hub の実行結果を反映するアプリケーション側の実体状態。 
+/// Command Hub の実行結果を反映するアプリケーション側の実体状態。
 #[derive(Debug)]
 pub struct CommandHubApplicationState {
     workspaces: Vec<WorkspaceItem>,
@@ -194,7 +202,10 @@ impl CommandHubApplicationState {
             workspaces: snapshot.workspaces.clone(),
             pane_manager: PaneManager::from_items(snapshot.panes.clone()),
             terminals: snapshot.terminals.clone(),
-            tab_manager: TabManager::from_snapshots(snapshot.tabs.clone(), DEFAULT_HISTORY_CAPACITY),
+            tab_manager: TabManager::from_snapshots(
+                snapshot.tabs.clone(),
+                DEFAULT_HISTORY_CAPACITY,
+            ),
             focused_panel: snapshot.focused_panel,
         }
     }
@@ -204,7 +215,8 @@ impl CommandHubApplicationState {
         self.workspaces = snapshot.workspaces.clone();
         self.pane_manager = PaneManager::from_items(snapshot.panes.clone());
         self.terminals = snapshot.terminals.clone();
-        self.tab_manager = TabManager::from_snapshots(snapshot.tabs.clone(), DEFAULT_HISTORY_CAPACITY);
+        self.tab_manager =
+            TabManager::from_snapshots(snapshot.tabs.clone(), DEFAULT_HISTORY_CAPACITY);
         self.focused_panel = snapshot.focused_panel;
     }
 
@@ -463,7 +475,15 @@ impl CommandHubActionModel {
             ("pane", "next") => self.execute_pane_next(),
             ("pane", "prev") => self.execute_pane_prev(),
             ("pane", "close") => self.execute_pane_close(command),
-            ("pane", "open") | ("pane", "activate") => self.execute_pane_activate(command),
+            ("pane", "move") => self.execute_pane_move_tab(command),
+            ("pane", "open") => {
+                if let Some(side_title) = parse_pane_open_side_title(&command.target) {
+                    self.execute_pane_open_side(side_title)
+                } else {
+                    self.execute_pane_activate(command)
+                }
+            }
+            ("pane", "activate") => self.execute_pane_activate(command),
             ("panel", "focus") => self.execute_panel_focus(command.target.as_str()),
             ("panel", verb) if verb.starts_with("focus_") => {
                 let target = &verb["focus_".len()..];
@@ -704,6 +724,76 @@ impl CommandHubActionModel {
             Err(_) => CommandActionOutcome::Failed(CommandActionError::InvalidTarget {
                 reason: "pane の活性化に失敗しました".to_string(),
             }),
+        }
+    }
+
+    fn execute_pane_open_side(&mut self, title: String) -> CommandActionOutcome {
+        let pane_title = if title.trim().is_empty() {
+            "untitled".to_string()
+        } else {
+            title
+        };
+        let pane_id = self.pane_manager.open_to_side(pane_title);
+        CommandActionOutcome::Executed(CommandActionEvent::PaneOpened { pane_id })
+    }
+
+    fn execute_pane_move_tab(&mut self, command: &ParsedCommand) -> CommandActionOutcome {
+        let direction = match parse_pane_move_direction(&command.target) {
+            Some(direction) => direction,
+            None => {
+                return CommandActionOutcome::Failed(CommandActionError::MissingTarget {
+                    domain: command.domain.clone(),
+                    verb: command.verb.clone(),
+                });
+            }
+        };
+
+        if self.pane_manager.pane_count() <= 1 {
+            return CommandActionOutcome::Failed(CommandActionError::InvalidTarget {
+                reason: "pane が1つしかないためタブを移動できません".to_string(),
+            });
+        }
+
+        let tab_id = match self.pane_manager.active_tab_id() {
+            Some(id) => id.to_string(),
+            None => {
+                return CommandActionOutcome::Failed(CommandActionError::NotFound {
+                    resource: "tab",
+                    target: "active".to_string(),
+                });
+            }
+        };
+
+        let from_pane_id = match self.pane_manager.active_pane_id() {
+            Some(id) => id.to_string(),
+            None => {
+                return CommandActionOutcome::Failed(CommandActionError::NotFound {
+                    resource: "pane",
+                    target: "active".to_string(),
+                });
+            }
+        };
+
+        let target_pane_id = match direction {
+            PaneMoveDirection::Next => self.pane_manager.next_pane_id(),
+            PaneMoveDirection::Previous => self.pane_manager.prev_pane_id(),
+        };
+        let target_pane_id = match target_pane_id {
+            Some(id) => id.to_string(),
+            None => {
+                return CommandActionOutcome::Failed(CommandActionError::InvalidTarget {
+                    reason: "移動先のペインが見つかりません".to_string(),
+                });
+            }
+        };
+
+        match self.pane_manager.move_tab(&tab_id, &target_pane_id) {
+            Ok(()) => CommandActionOutcome::Executed(CommandActionEvent::TabMoved {
+                tab_id,
+                from_pane_id,
+                to_pane_id: target_pane_id,
+            }),
+            Err(error) => CommandActionOutcome::Failed(pane_move_error_to_action_error(error)),
         }
     }
 
@@ -1289,6 +1379,65 @@ fn parse_pane_split_direction(value: &str) -> Option<PaneSplitDirection> {
     }
 }
 
+enum PaneMoveDirection {
+    Next,
+    Previous,
+}
+
+fn parse_pane_move_direction(target: &str) -> Option<PaneMoveDirection> {
+    let normalized = normalized_lookup(target);
+    if normalized.contains("next") || normalized.contains("forward") {
+        Some(PaneMoveDirection::Next)
+    } else if normalized.contains("prev")
+        || normalized.contains("previous")
+        || normalized.contains("backward")
+    {
+        Some(PaneMoveDirection::Previous)
+    } else {
+        None
+    }
+}
+
+fn parse_pane_open_side_title(target: &str) -> Option<String> {
+    let trimmed = target.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut parts = trimmed.split_whitespace();
+    let first = parts.next()?;
+    match normalized_lookup(first).as_str() {
+        "side" => Some(parts.collect::<Vec<_>>().join(" ")),
+        "to" => {
+            let second = parts.next()?;
+            if normalized_lookup(second) == "side" {
+                Some(parts.collect::<Vec<_>>().join(" "))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn pane_move_error_to_action_error(error: PaneManagerError) -> CommandActionError {
+    match error {
+        PaneManagerError::TabNotFound(tab_id) => CommandActionError::NotFound {
+            resource: "tab",
+            target: tab_id,
+        },
+        PaneManagerError::SingleTabPane(pane_id) => CommandActionError::InvalidTarget {
+            reason: format!("{pane_id} には移動対象のタブがありません"),
+        },
+        PaneManagerError::PaneNotFound(pane_id) => CommandActionError::NotFound {
+            resource: "pane",
+            target: pane_id,
+        },
+        _ => CommandActionError::InvalidTarget {
+            reason: "タブの移動に失敗しました".to_string(),
+        },
+    }
+}
+
 fn parse_panel_target(value: &str) -> Option<PanelTarget> {
     let target = normalized_lookup(value);
     match target.as_str() {
@@ -1536,14 +1685,13 @@ mod tests {
 
         let borrowed = shared_state.borrow();
         assert_eq!(borrowed.terminals().len(), snapshot.terminals.len());
-        assert!(borrowed
-            .terminals()
-            .iter()
-            .any(|terminal| terminal.id == terminal_id));
-        assert_eq!(
-            borrowed.pane_manager().panes().len(),
-            snapshot.panes.len()
+        assert!(
+            borrowed
+                .terminals()
+                .iter()
+                .any(|terminal| terminal.id == terminal_id)
         );
+        assert_eq!(borrowed.pane_manager().panes().len(), snapshot.panes.len());
         assert_eq!(borrowed.tab_manager().tabs(), snapshot.tabs);
     }
 
@@ -1583,6 +1731,84 @@ mod tests {
             })
         );
         assert_eq!(model.panes().len(), 2);
+    }
+
+    #[test]
+    fn pane_open_side_creates_new_pane_and_notifies() {
+        let mut model = model();
+        let outcome = model.execute(&action_command("pane", "open", "side"));
+
+        let pane_id =
+            if let CommandActionOutcome::Executed(CommandActionEvent::PaneOpened { pane_id }) =
+                outcome
+            {
+                pane_id
+            } else {
+                panic!("pane open side が PaneOpened を返すはず");
+            };
+
+        let panes = model.panes();
+        assert_eq!(panes.len(), 3);
+        assert!(
+            panes
+                .iter()
+                .any(|pane| pane.id == pane_id && pane.title == "untitled")
+        );
+    }
+
+    #[test]
+    fn pane_open_side_can_take_custom_title() {
+        let mut model = model();
+        let _ = model.execute(&action_command("pane", "open", "side README"));
+
+        let panes = model.panes();
+        let target = panes
+            .iter()
+            .find(|pane| pane.is_active)
+            .expect("新規ペインがアクティブであるはず");
+        assert_eq!(target.title, "README");
+    }
+
+    #[test]
+    fn pane_move_tab_next_transfers_active_tab() {
+        let mut model = model();
+        model
+            .pane_manager
+            .add_tab_to_pane("pane-1", "extra.md")
+            .expect("tab 追加成功");
+
+        let outcome = model.execute(&action_command("pane", "move", "tab next"));
+
+        let event = if let CommandActionOutcome::Executed(CommandActionEvent::TabMoved {
+            tab_id,
+            from_pane_id,
+            to_pane_id,
+        }) = outcome
+        {
+            assert_eq!(from_pane_id, "pane-1");
+            assert_eq!(to_pane_id, "pane-2");
+            assert!(tab_id.starts_with("tab-"));
+            tab_id
+        } else {
+            panic!("TabMoved イベントが返るはず");
+        };
+
+        let panes = model.panes();
+        assert_eq!(panes[1].title, "extra.md");
+        assert!(
+            model.tab_manager.tabs().iter().any(|tab| tab.id == event),
+            "移動したタブが TabManager に存在するはず"
+        );
+    }
+
+    #[test]
+    fn pane_move_requires_direction_keyword() {
+        let mut model = model();
+        let outcome = model.execute(&action_command("pane", "move", "tab"));
+        assert!(matches!(
+            outcome,
+            CommandActionOutcome::Failed(CommandActionError::MissingTarget { .. })
+        ));
     }
 
     #[test]

@@ -503,6 +503,47 @@ impl PaneManager {
             self.history.record_visit(&pane.id, &tab.id);
         }
     }
+
+    /// アクティブなタブの ID を返す。
+    pub fn active_tab_id(&self) -> Option<&str> {
+        self.panes
+            .get(self.active_index)
+            .and_then(|pane| pane.tabs.get(pane.active_tab_index))
+            .map(|tab| tab.id.as_str())
+    }
+
+    /// 指定インデックスのペイン ID を取得する。
+    pub fn pane_id_at(&self, index: usize) -> Option<&str> {
+        self.panes.get(index).map(|pane| pane.id.as_str())
+    }
+
+    /// ペインの数を返す。
+    pub fn pane_count(&self) -> usize {
+        self.panes.len()
+    }
+
+    /// 次のペイン ID を返す（末尾から先頭へループ）。
+    pub fn next_pane_id(&self) -> Option<&str> {
+        if self.panes.is_empty() {
+            return None;
+        }
+        let next_index = (self.active_index + 1) % self.panes.len();
+        self.panes.get(next_index).map(|pane| pane.id.as_str())
+    }
+
+    /// 前のペイン ID を返す（先頭から末尾へループ）。
+    pub fn prev_pane_id(&self) -> Option<&str> {
+        let count = self.panes.len();
+        if count == 0 {
+            return None;
+        }
+        let prev_index = if self.active_index == 0 {
+            count - 1
+        } else {
+            self.active_index - 1
+        };
+        self.panes.get(prev_index).map(|pane| pane.id.as_str())
+    }
 }
 
 impl PaneState {
