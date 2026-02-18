@@ -100,3 +100,77 @@ Phase 2 完了時のチェック:
 - `nue-ui` の import が旧パスを参照していないこと。
 - `nue-core/src/lib.rs` が新ドメイン公開面のみを持つこと。
 - 主要機能（Command Hub/Editor/Workspace/Terminal/Search）の既存テストがすべて通過すること。
+
+# nue-core 改善計画（Phase 3+）
+
+## 1. 背景
+
+- `specs/plans/nue-core-refactor.md` の Phase 1（Move-only）と Phase 2（Behavior-preserving の初回分割）は完了済み。
+- ただし `nue-core` には依然として責務が集中したファイルが残り、将来変更時の影響範囲が広い。
+- 本計画は「挙動不変を維持しながら、内部設計の可読性・保守性・検証容易性をさらに引き上げる」ことを目的とする。
+
+## 2. 目的
+- 主要 3 ドメイン（`editor`, `command`, `terminal`）の内部責務を明示分離する。
+- 変更単位を小さくし、レビュー時に「何が変わっていないか」を示しやすくする。
+- 既存 API 互換を維持しつつ、テスト粒度を細分化して退行検出力を上げる。
+
+## 3. 基本方針
+- Tidy First: 先に構造を整え、挙動変更は混ぜない。
+- Red → Green → Refactor を小ステップで回す。
+- 逐次実行のみ（並列作業なし）。
+- 外部クレートは追加しない。
+- 1 ステップごとに `cargo test`、節目で `scripts/sanity.sh` を実行する。
+
+## 4. スコープ
+### 対象
+- `nue-core/src/editor/core.rs`
+- `nue-core/src/command/actions.rs`
+- `nue-core/src/terminal/session.rs`
+
+### 非対象
+- `nue-ui` の機能追加
+- 公開 API の破壊的変更
+- 新規機能（仕様追加）
+
+## 5. 実行フェーズ
+
+## Phase 3: editor ドメインの内部分割
+### ねらい
+- `EditorCore` の「状態管理」「コマンド実行」「イベント生成」を段階分離する。
+
+### 実施順
+1. `editor/core_buffer.rs` を新設し、`EditorBuffer` / `HistoryState` を移動。
+2. `editor/core_commands.rs` を新設し、ショートカット解決とコマンド実行補助を移動。
+3. `editor/core_events.rs` を新設し、`EditorCoreEvent` 生成補助を移動。
+
+### 受け入れ条件
+- `editor/core.rs` がオーケストレーション中心になり、低レベル詳細を直接持たない。
+- `editor::core` の既存テストが全通過。
+
+## Phase 4: command ドメインの内部分割
+### ねらい
+- `CommandHubActionModel` の分岐密度を下げ、ドメイン別ハンドラへ分割する。
+
+### 実施順
+1. `command/actions/workspace_actions.rs`（workspace add/list/remove）。
+2. `command/actions/pane_actions.rs`（split/close/move/open side）。
+3. `command/actions/tab_actions.rs`（pin/close/reorder/reopen）。
+4. `command/actions/terminal_actions.rs` と `panel_actions.rs` を追加。
+5. `dispatch_execute_outcome` の分岐をハンドラ委譲へ置換。
+
+### 受け入れ条件
+- `actions.rs` はディスパッチと共通エラー変換に集中する。
+- 既存の `command::actions::tests` を無変更で全通過。
+
+## Phase 5: terminal ドメインの内部分割
+### ねらい
+- `TerminalSession` の責務（キュー状態遷移 / 監査イベント / 文脈検証）を分離する。
+
+### 実施順
+1. `terminal/session/queue.rs` にキュー状態遷移を抽出。
+2. `terminal/session/audit.rs` に audit payload 生成を抽出。
+3. `terminal/session/context.rs`（既存）を拡張し、文脈検証ロジックを集約。
+
+### 受け入れ条件
+- `session.rs` は公開 API と委譲のみを担当。
+- `terminal::session::tests` が全通過し、イベント順序が不変。
