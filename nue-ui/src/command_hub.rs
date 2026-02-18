@@ -107,6 +107,76 @@ impl CommandHubUiTransition {
     }
 }
 
+/// オーバーレイの現在状態を表す列挙型。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandHubOverlayState {
+    /// オーバーレイが閉じている。
+    Closed,
+    /// 候補一覧を開いている。
+    Listing { candidate_id: Option<String> },
+    /// 確認待ち状態である。
+    Confirmation { candidate_id: String },
+}
+
+impl Default for CommandHubOverlayState {
+    fn default() -> Self {
+        Self::Closed
+    }
+}
+
+/// UI が保持する Command Hub の制御状態。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandHubUiState {
+    pub overlay_state: CommandHubOverlayState,
+    pub notification: Option<CommandHubNotification>,
+    pub executed_event: Option<CommandActionEvent>,
+}
+
+impl Default for CommandHubUiState {
+    fn default() -> Self {
+        Self {
+            overlay_state: CommandHubOverlayState::default(),
+            notification: None,
+            executed_event: None,
+        }
+    }
+}
+
+impl CommandHubUiState {
+    /// 新しい状態を生成する。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Dispatch 結果を受けて UI 状態を更新し、対応する遷移を返す。
+    pub fn apply_outcome(&mut self, outcome: CommandHubDispatchOutcome) -> CommandHubUiTransition {
+        let transition = CommandHubUiTransition::from_outcome(outcome);
+        self.apply_transition(&transition);
+        transition
+    }
+
+    fn apply_transition(&mut self, transition: &CommandHubUiTransition) {
+        self.notification = transition.notification.clone();
+        self.executed_event = transition.executed_event.clone();
+        match &transition.overlay_action {
+            CommandHubOverlayAction::KeepOpen => {}
+            CommandHubOverlayAction::CloseOverlay { .. } => {
+                self.overlay_state = CommandHubOverlayState::Closed;
+            }
+            CommandHubOverlayAction::ReturnToListing { candidate_id } => {
+                self.overlay_state = CommandHubOverlayState::Listing {
+                    candidate_id: candidate_id.clone(),
+                };
+            }
+            CommandHubOverlayAction::NeedsConfirmation { candidate_id } => {
+                self.overlay_state = CommandHubOverlayState::Confirmation {
+                    candidate_id: candidate_id.clone(),
+                };
+            }
+        }
+    }
+}
+
 fn message_for_error(error: &CommandActionError) -> String {
     match error {
         CommandActionError::UnsupportedCommand { domain, verb } => {
@@ -128,6 +198,7 @@ fn message_for_error(error: &CommandActionError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nue_core::command_hub_actions::CommandActionEvent;
     use nue_core::command_hub_actions::{CommandActionError, CommandHubDispatchOutcome};
 
     #[test]
@@ -209,5 +280,52 @@ mod tests {
             }
         );
         assert!(transition.notification.is_none());
+    }
+
+    #[test]
+    fn apply_outcome_updates_overlay_state_and_notification() {
+        let mut state = CommandHubUiState::new();
+        let transition = state.apply_outcome(CommandHubDispatchOutcome::BackToListing {
+            candidate_id: Some("candidate".into()),
+        });
+
+        assert_eq!(
+            state.overlay_state,
+            CommandHubOverlayState::Listing {
+                candidate_id: Some("candidate".into())
+            }
+        );
+        assert_eq!(state.notification, transition.notification.clone());
+        assert_eq!(state.executed_event, transition.executed_event.clone());
+    }
+
+    #[test]
+    fn apply_outcome_records_executed_event() {
+        let mut state = CommandHubUiState::new();
+        let event = CommandActionEvent::WorkspaceAdded {
+            workspace_id: "ws".into(),
+        };
+        let transition = state.apply_outcome(CommandHubDispatchOutcome::Executed(event.clone()));
+
+        assert_eq!(state.overlay_state, CommandHubOverlayState::Closed);
+        assert_eq!(state.executed_event, Some(event));
+        assert_eq!(state.notification, transition.notification);
+    }
+
+    #[test]
+    fn apply_outcome_sets_confirmation_state() {
+        let mut state = CommandHubUiState::new();
+        let candidate: String = "need-confirm".into();
+        state.apply_outcome(CommandHubDispatchOutcome::NeedsConfirmation {
+            candidate_id: candidate.clone(),
+        });
+
+        assert_eq!(
+            state.overlay_state,
+            CommandHubOverlayState::Confirmation {
+                candidate_id: candidate
+            }
+        );
+        assert!(state.executed_event.is_none());
     }
 }

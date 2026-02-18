@@ -94,11 +94,6 @@ EOF
   run_codex_exec "dangerously-bypass-approvals-and-sandbox" "never" "$MODEL" "$MODEL_REASONING_EFFORT" "$AGENT_PROMPT"
   echo "✅ completed"
   run_commit_agent_if_needed
-  if ! has_uncommitted_src_changes; then
-    echo "❌ 何らかの不具合が発生している可能性があります。 logs/workflow.log を確認してください"
-    exit 1
-    return
-  fi
 done
 
 # レビュー
