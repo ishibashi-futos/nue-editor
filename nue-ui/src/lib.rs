@@ -17,6 +17,7 @@ pub mod terminal;
 pub mod terminal_display;
 pub mod ui_style;
 pub mod workspace_rail;
+pub mod workspace_session_layout;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UiLaunchRequest {
