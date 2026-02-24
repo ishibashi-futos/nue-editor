@@ -1,12 +1,15 @@
 use nue_core::workspace::rail::WorkspaceRailState;
-use nue_core::workspace::registry::{
-    ExcludeWorkspaceOutcome, WorkspacePathValidation, WorkspaceRegistry,
-};
-use std::collections::VecDeque;
+use nue_core::workspace::registry::WorkspaceRegistry;
 
 use gpui::{Context, Window, div, prelude::*, px};
 
 use crate::design::gpui::GpuiDesignTokens;
+
+mod actions;
+mod connector;
+
+pub use actions::{WorkspaceRailActionQueue, WorkspaceRailUiAction};
+pub use connector::WorkspaceRailConnector;
 
 /// UI 側が参照するワークスペースステータス更新情報。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,36 +124,6 @@ impl WorkspaceRailViewState {
 
     pub fn context_menu_target_workspace_id(&self) -> Option<&str> {
         self.context_menu_target_workspace_id.as_deref()
-    }
-}
-
-/// UI からアプリ層へ通知する Workspace Rail 操作イベント。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WorkspaceRailUiAction {
-    RequestOpenAddDialog,
-    RequestSubmitAddWorkspace { input_path: String },
-    RequestOpenExcludeMenu { workspace_id: String },
-    RequestExcludeWorkspace { workspace_id: String },
-    RequestSelectWorkspace { workspace_id: String },
-}
-
-/// GPUI イベントハンドラからアプリ層への通知を中継する最小キュー。
-#[derive(Debug, Clone, Default)]
-pub struct WorkspaceRailActionQueue {
-    pending: VecDeque<WorkspaceRailUiAction>,
-}
-
-impl WorkspaceRailActionQueue {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn push(&mut self, action: WorkspaceRailUiAction) {
-        self.pending.push_back(action);
-    }
-
-    pub fn drain(&mut self) -> Vec<WorkspaceRailUiAction> {
-        self.pending.drain(..).collect()
     }
 }
 
@@ -528,57 +501,6 @@ fn status_label(state: WorkspaceRailState) -> &'static str {
         WorkspaceRailState::Waiting => "Waiting",
         WorkspaceRailState::Error => "Error",
         WorkspaceRailState::Idle => "Idle",
-    }
-}
-
-/// WorkspaceRegistry との橋渡しを行うヘルパーモジュール。
-pub struct WorkspaceRailConnector;
-
-impl WorkspaceRailConnector {
-    /// Registry から蓄積されたステータス更新を取り出す。
-    pub fn drain_status_updates(
-        registry: &mut WorkspaceRegistry,
-    ) -> Vec<WorkspaceRailStatusUpdate> {
-        registry
-            .drain_status_events()
-            .into_iter()
-            .map(|event| WorkspaceRailStatusUpdate {
-                workspace_id: event.workspace_id,
-                state: event.state,
-                revision: event.revision,
-            })
-            .collect()
-    }
-
-    /// コンテキストメニューから選択されているワークスペースを除外する。
-    pub fn exclude_selected_workspace(
-        registry: &mut WorkspaceRegistry,
-    ) -> WorkspaceRailExcludeOutcome {
-        match registry.exclude_context_menu_target() {
-            ExcludeWorkspaceOutcome::Excluded { workspace_id } => {
-                WorkspaceRailExcludeOutcome::Excluded { workspace_id }
-            }
-            ExcludeWorkspaceOutcome::ContextMenuClosed => {
-                WorkspaceRailExcludeOutcome::ContextMenuClosed
-            }
-            ExcludeWorkspaceOutcome::WorkspaceNotFound => {
-                WorkspaceRailExcludeOutcome::WorkspaceNotFound
-            }
-        }
-    }
-
-    /// パス検証の結果に応じた UI 表示用のメッセージを取得する。
-    pub fn validation_message(validation: &WorkspacePathValidation) -> &'static str {
-        match validation {
-            WorkspacePathValidation::Empty => "パスが空です。",
-            WorkspacePathValidation::MustBeAbsolute => "絶対パスを指定してください。",
-            WorkspacePathValidation::NotFoundOrInaccessible => {
-                "指定したパスが存在しないかアクセスできません。"
-            }
-            WorkspacePathValidation::MustBeDirectory => "ディレクトリを指定してください。",
-            WorkspacePathValidation::Duplicate => "同じワークスペースが既に登録されています。",
-            WorkspacePathValidation::Valid => "指定したパスは有効です。",
-        }
     }
 }
 
