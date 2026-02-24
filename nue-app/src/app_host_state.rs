@@ -57,8 +57,11 @@ impl AppHostState {
         &self.sessions
     }
 
-    pub fn sessions_mut(&mut self) -> &mut WorkspaceSessionListState {
-        &mut self.sessions
+    pub fn session_mut(
+        &mut self,
+        id: &WorkspaceSessionId,
+    ) -> Option<&mut WorkspaceSessionListEntry> {
+        self.sessions.get_mut(id)
     }
 
     pub fn create_workspace_session(
@@ -115,7 +118,7 @@ impl WorkspaceSessionId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WorkspaceListState {
     order: Vec<WorkspaceId>,
     entries: BTreeMap<WorkspaceId, WorkspaceListEntry>,
@@ -155,15 +158,6 @@ impl WorkspaceListState {
             .iter()
             .filter_map(|id| self.entries.get(id))
             .collect()
-    }
-}
-
-impl Default for WorkspaceListState {
-    fn default() -> Self {
-        Self {
-            order: Vec::new(),
-            entries: BTreeMap::new(),
-        }
     }
 }
 
@@ -360,7 +354,7 @@ pub enum NotificationLevel {
     Error,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WorkspaceSessionListState {
     order: Vec<WorkspaceSessionId>,
     entries: BTreeMap<WorkspaceSessionId, WorkspaceSessionListEntry>,
@@ -379,12 +373,8 @@ impl WorkspaceSessionListState {
         self.entries.get(id)
     }
 
-    pub fn upsert(&mut self, entry: WorkspaceSessionListEntry) {
-        let id = entry.id.clone();
-        if !self.entries.contains_key(&id) {
-            self.order.push(id.clone());
-        }
-        self.entries.insert(id, entry);
+    fn get_mut(&mut self, id: &WorkspaceSessionId) -> Option<&mut WorkspaceSessionListEntry> {
+        self.entries.get_mut(id)
     }
 
     pub fn insert_new(
@@ -423,15 +413,6 @@ impl WorkspaceSessionListState {
             .into_iter()
             .filter(|entry| entry.workspace_id() == workspace_id)
             .collect()
-    }
-}
-
-impl Default for WorkspaceSessionListState {
-    fn default() -> Self {
-        Self {
-            order: Vec::new(),
-            entries: BTreeMap::new(),
-        }
     }
 }
 
@@ -759,12 +740,15 @@ mod tests {
         state
             .ui_shell_mut()
             .set_screen(ScreenKind::WorkspaceSession);
-        state.sessions_mut().upsert(WorkspaceSessionListEntry::new(
-            WorkspaceSessionId::new("session-1"),
-            workspace_id.clone(),
-            "session-1",
-            WorkspaceSessionStatus::Ready,
-        ));
+        state
+            .sessions
+            .insert_new(WorkspaceSessionListEntry::new(
+                WorkspaceSessionId::new("session-1"),
+                workspace_id.clone(),
+                "session-1",
+                WorkspaceSessionStatus::Ready,
+            ))
+            .expect("session insert for test");
 
         assert_eq!(state.workspaces().len(), 1);
         assert_eq!(state.sessions().len(), 1);
@@ -788,12 +772,15 @@ mod tests {
         let notification_id = state
             .notifications_mut()
             .push(NotificationLevel::Info, "loaded");
-        state.sessions_mut().upsert(WorkspaceSessionListEntry::new(
-            WorkspaceSessionId::new("session-ui"),
-            workspace_id.clone(),
-            "UI Session",
-            WorkspaceSessionStatus::Starting,
-        ));
+        state
+            .sessions
+            .insert_new(WorkspaceSessionListEntry::new(
+                WorkspaceSessionId::new("session-ui"),
+                workspace_id.clone(),
+                "UI Session",
+                WorkspaceSessionStatus::Starting,
+            ))
+            .expect("session insert for test");
 
         assert_eq!(state.ui_shell().left_panel(), LeftPanelKind::Search);
         assert_eq!(state.ui_shell().overlay(), OverlayKind::CommandHub);
@@ -826,7 +813,7 @@ mod tests {
             .expect("session should exist after creation");
         assert_eq!(session.workspace_id(), &workspace_id);
         assert_eq!(session.status(), WorkspaceSessionStatus::Starting);
-        assert_eq!(session.bundle().command_hub().is_open(), false);
+        assert!(!session.bundle().command_hub().is_open());
         assert_eq!(session.bundle().tabs().tab_order(), &[] as &[String]);
 
         let removed = state.destroy_workspace_session(&session_id);
@@ -888,6 +875,60 @@ mod tests {
         assert_eq!(
             error,
             WorkspaceSessionCreationError::DuplicateSessionId { id: session_id }
+        );
+    }
+
+    #[test]
+    fn duplicate_session_creation_does_not_reset_existing_bundle_state() {
+        let mut state = AppHostState::empty();
+        let workspace_id = WorkspaceId::new("ws-bundle");
+        let session_id = WorkspaceSessionId::new("session-bundle");
+
+        state
+            .create_workspace_session(session_id.clone(), workspace_id.clone(), "first")
+            .expect("first creation");
+
+        let session = state
+            .session_mut(&session_id)
+            .expect("created session should exist");
+        session
+            .bundle_mut()
+            .command_hub_mut()
+            .set_query("keep-this-query");
+        session
+            .bundle_mut()
+            .tabs_mut()
+            .set_tab_order(vec!["tab-1".to_string(), "tab-2".to_string()]);
+        session
+            .bundle_mut()
+            .terminal_mut()
+            .set_terminal_ids(vec!["term-1".to_string()]);
+
+        let duplicate_error = state
+            .create_workspace_session(session_id.clone(), workspace_id, "second")
+            .expect_err("duplicate should fail");
+        assert_eq!(
+            duplicate_error,
+            WorkspaceSessionCreationError::DuplicateSessionId {
+                id: session_id.clone()
+            }
+        );
+
+        let session_after = state
+            .sessions()
+            .get(&session_id)
+            .expect("original session should remain");
+        assert_eq!(
+            session_after.bundle().command_hub().query(),
+            "keep-this-query"
+        );
+        assert_eq!(
+            session_after.bundle().tabs().tab_order(),
+            &["tab-1".to_string(), "tab-2".to_string()]
+        );
+        assert_eq!(
+            session_after.bundle().terminal().terminal_ids(),
+            &["term-1".to_string()]
         );
     }
 }

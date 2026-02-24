@@ -551,7 +551,16 @@ fn neon_night_font_context() -> FontContext {
                 bytes: FONT_BYTES_ITALIC,
             },
         ],
-        vec!["Menlo", "Monaco", "Courier New"],
+        vec![
+            "Hiragino Sans",
+            "Yu Gothic UI",
+            "Meiryo",
+            "Noto Sans CJK JP",
+            "Noto Sans JP",
+            "Menlo",
+            "Monaco",
+            "Courier New",
+        ],
     )
 }
 
@@ -731,7 +740,16 @@ mod tests {
         );
         assert_eq!(
             font_context.fallback_fonts(),
-            &["Menlo", "Monaco", "Courier New"]
+            &[
+                "Hiragino Sans",
+                "Yu Gothic UI",
+                "Meiryo",
+                "Noto Sans CJK JP",
+                "Noto Sans JP",
+                "Menlo",
+                "Monaco",
+                "Courier New",
+            ]
         );
     }
 

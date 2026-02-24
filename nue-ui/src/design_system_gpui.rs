@@ -135,6 +135,11 @@ mod tests {
                 .expect("フォールバックが必要")
                 .fallback_list(),
             &[
+                "Hiragino Sans".to_string(),
+                "Yu Gothic UI".to_string(),
+                "Meiryo".to_string(),
+                "Noto Sans CJK JP".to_string(),
+                "Noto Sans JP".to_string(),
                 "Menlo".to_string(),
                 "Monaco".to_string(),
                 "Courier New".to_string()
