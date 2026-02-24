@@ -3,11 +3,12 @@ use std::{cell::RefCell, rc::Rc};
 
 use gpui::{
     App, Application, Bounds, Context, Window, WindowBounds, WindowOptions, div, prelude::*, px,
-    rgb, size,
+    size,
 };
 
 pub mod command_hub;
 pub mod design_system;
+pub mod design_system_gpui;
 pub mod editor_events;
 pub mod editor_input;
 pub mod legacy_explorer;
@@ -38,12 +39,23 @@ impl UiLaunchRequest {
 }
 
 pub fn run_app(request: UiLaunchRequest) -> gpui::Result<()> {
-    let root_view = RootPlaceholderView::from_request(&request);
-    let _design_system = design_system::DesignSystem::neon_night_glass();
+    let design_system = design_system::DesignSystem::neon_night_glass();
     let launch_error = Rc::new(RefCell::new(None));
     let launch_error_for_callback = Rc::clone(&launch_error);
+    let request_for_callback = request.clone();
 
     Application::new().run(move |cx: &mut App| {
+        let design_tokens =
+            match design_system_gpui::apply_design_system_at_startup(cx, &design_system) {
+                Ok(tokens) => tokens,
+                Err(error) => {
+                    *launch_error_for_callback.borrow_mut() = Some(error);
+                    cx.quit();
+                    return;
+                }
+            };
+        let root_view = RootPlaceholderView::from_request(&request_for_callback, design_tokens);
+
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
                 cx.quit();
@@ -82,42 +94,64 @@ pub fn run_app(request: UiLaunchRequest) -> gpui::Result<()> {
 struct RootPlaceholderView {
     title: String,
     detail: String,
+    styles: design_system_gpui::GpuiDesignTokens,
 }
 
 impl RootPlaceholderView {
-    fn from_request(request: &UiLaunchRequest) -> Self {
+    fn from_request(
+        request: &UiLaunchRequest,
+        styles: design_system_gpui::GpuiDesignTokens,
+    ) -> Self {
         let detail = match request.workspace_root() {
             Some(workspace_root) => format!("workspace: {}", workspace_root.display()),
             None => "workspace: 未選択".to_string(),
         };
 
         Self {
-            title: "Nue UI Placeholder (T-005)".to_string(),
+            title: "Nue UI Placeholder (T-006)".to_string(),
             detail,
+            styles,
         }
     }
 }
 
 impl Render for RootPlaceholderView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .size_full()
-            .bg(rgb(0x111827))
-            .p_6()
-            .child(
-                div()
-                    .size_full()
-                    .flex()
-                    .flex_col()
-                    .justify_center()
-                    .items_center()
-                    .gap_2()
-                    .bg(rgb(0x1f2937))
-                    .border_1()
-                    .border_color(rgb(0x4b5563))
-                    .text_color(rgb(0xe5e7eb))
-                    .child(div().text_xl().child(self.title.clone()))
-                    .child(div().text_sm().child(self.detail.clone())),
-            )
+        let palette = &self.styles.palette;
+        let fonts = &self.styles.fonts;
+
+        div().size_full().bg(palette.window_background).p_6().child(
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .justify_center()
+                .items_center()
+                .gap_2()
+                .bg(palette.panel_background)
+                .border_1()
+                .border_color(palette.panel_border)
+                .child(
+                    div()
+                        .text_xl()
+                        .font(fonts.emphasis.clone())
+                        .text_color(palette.title_text)
+                        .child(self.title.clone()),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .font(fonts.meta.clone())
+                        .text_color(palette.body_text)
+                        .child(self.detail.clone()),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .font(fonts.text.clone())
+                        .text_color(palette.accent)
+                        .child("DesignSystem adapter applied"),
+                ),
+        )
     }
 }
