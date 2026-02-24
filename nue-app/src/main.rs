@@ -58,11 +58,9 @@ fn build_tokio_runtime() -> Result<Runtime> {
 }
 
 async fn launch_ui(config: LaunchConfig) -> Result<()> {
-    // T-004 で GPUI 実起動に置き換える。ここでは起動境界だけ先に固定する。
-    let _design_system = nue_ui::design_system::DesignSystem::neon_night_glass();
-    let _workspace_root = config.workspace_root();
-    tokio::task::yield_now().await;
-    Ok(())
+    let request =
+        nue_ui::UiLaunchRequest::new().with_workspace_root(config.workspace_root().map(PathBuf::from));
+    nue_ui::run_app(request)
 }
 
 fn resolve_launch_config(cli_args: CliArgs) -> Result<LaunchConfig, String> {
