@@ -78,11 +78,50 @@ impl AppHostState {
         ))
     }
 
+    pub fn select_workspace_for_session_display(
+        &mut self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<(), ActiveWorkspaceSelectionError> {
+        if self.workspaces.get(workspace_id).is_none() {
+            return Err(ActiveWorkspaceSelectionError::WorkspaceNotRegistered {
+                workspace_id: workspace_id.clone(),
+            });
+        }
+
+        if self.sessions.ordered_for_workspace(workspace_id).is_empty() {
+            return Err(ActiveWorkspaceSelectionError::WorkspaceSessionNotReady {
+                workspace_id: workspace_id.clone(),
+            });
+        }
+
+        self.active_workspace.set(Some(workspace_id.clone()));
+        self.ui_shell.set_screen(ScreenKind::WorkspaceSession);
+        Ok(())
+    }
+
+    pub fn clear_workspace_selection(&mut self) {
+        self.active_workspace.set(None);
+        self.ui_shell.set_screen(ScreenKind::WorkspaceSelection);
+    }
+
     pub fn destroy_workspace_session(
         &mut self,
         id: &WorkspaceSessionId,
     ) -> Option<WorkspaceSessionListEntry> {
-        self.sessions.remove(id)
+        let removed_entry = self.sessions.remove(id)?;
+
+        let should_clear_selection = self.active_workspace.current()
+            == Some(removed_entry.workspace_id())
+            && self
+                .sessions
+                .ordered_for_workspace(removed_entry.workspace_id())
+                .is_empty();
+
+        if should_clear_selection {
+            self.clear_workspace_selection();
+        }
+
+        Some(removed_entry)
     }
 }
 
@@ -226,6 +265,12 @@ impl ActiveWorkspaceState {
     pub fn set(&mut self, workspace_id: Option<WorkspaceId>) {
         self.active_workspace_id = workspace_id;
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ActiveWorkspaceSelectionError {
+    WorkspaceNotRegistered { workspace_id: WorkspaceId },
+    WorkspaceSessionNotReady { workspace_id: WorkspaceId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -827,6 +872,109 @@ mod tests {
         let removed = state.destroy_workspace_session(&session_id);
         assert!(removed.is_some());
         assert!(state.sessions().get(&session_id).is_none());
+    }
+
+    #[test]
+    fn 複数ワークスペースから表示中ワークスペースを一意に選択できる() {
+        let mut state = AppHostState::empty();
+        let workspace_a = WorkspaceId::new("ws-a");
+        let workspace_b = WorkspaceId::new("ws-b");
+
+        state.workspaces_mut().upsert(WorkspaceListEntry::new(
+            workspace_a.clone(),
+            PathBuf::from("/tmp/ws-a"),
+            "A",
+        ));
+        state.workspaces_mut().upsert(WorkspaceListEntry::new(
+            workspace_b.clone(),
+            PathBuf::from("/tmp/ws-b"),
+            "B",
+        ));
+        state
+            .create_workspace_session(
+                WorkspaceSessionId::new("session-a"),
+                workspace_a.clone(),
+                "session-a",
+            )
+            .expect("a session");
+        state
+            .create_workspace_session(
+                WorkspaceSessionId::new("session-b"),
+                workspace_b.clone(),
+                "session-b",
+            )
+            .expect("b session");
+
+        state
+            .select_workspace_for_session_display(&workspace_a)
+            .expect("a を選択");
+        assert_eq!(state.active_workspace().current(), Some(&workspace_a));
+        assert_eq!(state.ui_shell().screen(), ScreenKind::WorkspaceSession);
+
+        state
+            .select_workspace_for_session_display(&workspace_b)
+            .expect("b を選択");
+        assert_eq!(state.active_workspace().current(), Some(&workspace_b));
+        assert_eq!(state.ui_shell().screen(), ScreenKind::WorkspaceSession);
+    }
+
+    #[test]
+    fn 未登録または未セッションのワークスペースは表示選択できない() {
+        let mut state = AppHostState::empty();
+        let registered = WorkspaceId::new("ws-registered");
+        let missing = WorkspaceId::new("ws-missing");
+
+        state.workspaces_mut().upsert(WorkspaceListEntry::new(
+            registered.clone(),
+            PathBuf::from("/tmp/ws-registered"),
+            "registered",
+        ));
+
+        let missing_error = state
+            .select_workspace_for_session_display(&missing)
+            .expect_err("未登録は失敗");
+        assert_eq!(
+            missing_error,
+            ActiveWorkspaceSelectionError::WorkspaceNotRegistered {
+                workspace_id: missing.clone(),
+            }
+        );
+
+        let not_ready_error = state
+            .select_workspace_for_session_display(&registered)
+            .expect_err("セッション未生成は失敗");
+        assert_eq!(
+            not_ready_error,
+            ActiveWorkspaceSelectionError::WorkspaceSessionNotReady {
+                workspace_id: registered,
+            }
+        );
+        assert_eq!(state.active_workspace().current(), None);
+        assert_eq!(state.ui_shell().screen(), ScreenKind::WorkspaceSelection);
+    }
+
+    #[test]
+    fn 表示中ワークスペースの最後のセッション破棄で選択をクリアする() {
+        let mut state = AppHostState::empty();
+        let workspace_id = WorkspaceId::new("ws-clear");
+        let session_id = WorkspaceSessionId::new("session-clear");
+
+        state.workspaces_mut().upsert(WorkspaceListEntry::new(
+            workspace_id.clone(),
+            PathBuf::from("/tmp/ws-clear"),
+            "clear",
+        ));
+        state
+            .create_workspace_session(session_id.clone(), workspace_id.clone(), "clear")
+            .expect("session 作成");
+        state
+            .select_workspace_for_session_display(&workspace_id)
+            .expect("選択");
+
+        let removed = state.destroy_workspace_session(&session_id);
+        assert!(removed.is_some());
+        assert_eq!(state.active_workspace().current(), None);
+        assert_eq!(state.ui_shell().screen(), ScreenKind::WorkspaceSelection);
     }
 
     #[test]

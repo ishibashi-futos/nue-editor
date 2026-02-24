@@ -160,7 +160,9 @@ impl LegacyWorkspaceEditor {
         self.editor_core.register_shortcut(chord, command)
     }
 
-    pub fn register_default_editor_shortcuts(&mut self) -> Vec<(KeyChord, RegisterShortcutOutcome)> {
+    pub fn register_default_editor_shortcuts(
+        &mut self,
+    ) -> Vec<(KeyChord, RegisterShortcutOutcome)> {
         self.editor_core.register_default_shortcuts()
     }
 
@@ -460,16 +462,23 @@ mod tests {
             SelectFileOutcome::Selected(_)
         ));
         let opened_events = workspace_editor.drain_editor_events();
-        assert!(opened_events
-            .iter()
-            .any(|event| matches!(event, EditorCoreEvent::BufferOpened(_))));
+        assert!(
+            opened_events
+                .iter()
+                .any(|event| matches!(event, EditorCoreEvent::BufferOpened(_)))
+        );
 
         let registered = workspace_editor.register_default_editor_shortcuts();
-        assert!(!registered.is_empty(), "デフォルトショートカットが登録される");
+        assert!(
+            !registered.is_empty(),
+            "デフォルトショートカットが登録される"
+        );
         let register_events = workspace_editor.drain_editor_events();
-        assert!(register_events
-            .iter()
-            .any(|event| matches!(event, EditorCoreEvent::ShortcutRegistered(_))));
+        assert!(
+            register_events
+                .iter()
+                .any(|event| matches!(event, EditorCoreEvent::ShortcutRegistered(_)))
+        );
 
         let save_chord = KeyChord::new("s", vec![KeyModifier::CmdOrCtrl]);
         let shortcut_outcome = workspace_editor.dispatch_editor_shortcut(&save_chord);
@@ -480,9 +489,11 @@ mod tests {
                 && outcome == CommandExecutionOutcome::Save(SaveOutcome::NotDirty)
         ));
         let shortcut_events = workspace_editor.drain_editor_events();
-        assert!(shortcut_events
-            .iter()
-            .any(|event| matches!(event, EditorCoreEvent::ShortcutDispatched(_))));
+        assert!(
+            shortcut_events
+                .iter()
+                .any(|event| matches!(event, EditorCoreEvent::ShortcutDispatched(_)))
+        );
 
         let menu_outcome = workspace_editor.open_editor_context_menu();
         assert!(matches!(
@@ -500,7 +511,8 @@ mod tests {
         ));
         assert!(!workspace_editor.editor_context_menu().is_open);
 
-        let markdown_outcome = workspace_editor.execute_markdown_feature(MarkdownFeature::SyntaxHighlight);
+        let markdown_outcome =
+            workspace_editor.execute_markdown_feature(MarkdownFeature::SyntaxHighlight);
         assert_eq!(
             markdown_outcome,
             ExecuteMarkdownFeatureOutcome::Executed {

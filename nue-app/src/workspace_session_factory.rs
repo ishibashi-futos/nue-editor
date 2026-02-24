@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
 use crate::app_host_state::{
-    AppHostState, NotificationId, NotificationLevel, ScreenKind, WorkspaceId, WorkspaceListEntry,
+    AppHostState, NotificationId, NotificationLevel, WorkspaceId, WorkspaceListEntry,
     WorkspaceSessionCreationError, WorkspaceSessionId, WorkspaceSessionStatus, WorkspaceStatus,
 };
 use nue_core::command::actions::{CommandHubActionModel, TerminalItem, WorkspaceItem};
@@ -32,7 +32,10 @@ impl WorkspaceSessionFactory {
         }
     }
 
-    pub fn runtime(&self, session_id: &WorkspaceSessionId) -> Option<&WorkspaceSessionRuntimeBundle> {
+    pub fn runtime(
+        &self,
+        session_id: &WorkspaceSessionId,
+    ) -> Option<&WorkspaceSessionRuntimeBundle> {
         self.runtimes.get(session_id)
     }
 
@@ -89,7 +92,10 @@ impl WorkspaceSessionFactory {
             });
         };
 
-        self.create_for_workspace_descriptor(app_state, WorkspaceDescriptor::from_rail_model(workspace))
+        self.create_for_workspace_descriptor(
+            app_state,
+            WorkspaceDescriptor::from_rail_model(workspace),
+        )
     }
 
     pub fn notify_error(
@@ -110,11 +116,13 @@ impl WorkspaceSessionFactory {
     ) -> Result<WorkspaceSessionCreated, WorkspaceSessionFactoryError> {
         let session_id = workspace_session_id_for(&descriptor.workspace_id);
         let session_title = descriptor.display_name.clone();
-        let runtime_bundle = WorkspaceSessionRuntimeBundle::new(&session_id, &descriptor)
-            .map_err(|source| WorkspaceSessionFactoryError::EditorInitializationFailed {
-                workspace_id: descriptor.workspace_id.as_str().to_string(),
-                root_path: descriptor.root_path.clone(),
-                source,
+        let runtime_bundle =
+            WorkspaceSessionRuntimeBundle::new(&session_id, &descriptor).map_err(|source| {
+                WorkspaceSessionFactoryError::EditorInitializationFailed {
+                    workspace_id: descriptor.workspace_id.as_str().to_string(),
+                    root_path: descriptor.root_path.clone(),
+                    source,
+                }
             })?;
 
         app_state.workspaces_mut().upsert(
@@ -132,11 +140,13 @@ impl WorkspaceSessionFactory {
                 descriptor.workspace_id.clone(),
                 session_title,
             )
-            .map_err(|source| WorkspaceSessionFactoryError::SessionCreationRejected {
-                workspace_id: descriptor.workspace_id.as_str().to_string(),
-                root_path: descriptor.root_path.clone(),
-                source,
-            })?;
+            .map_err(
+                |source| WorkspaceSessionFactoryError::SessionCreationRejected {
+                    workspace_id: descriptor.workspace_id.as_str().to_string(),
+                    root_path: descriptor.root_path.clone(),
+                    source,
+                },
+            )?;
 
         if let Some(session_entry) = app_state.session_mut(&session_id) {
             session_entry.set_status(WorkspaceSessionStatus::Ready);
@@ -169,9 +179,8 @@ impl WorkspaceSessionFactory {
         }
 
         app_state
-            .active_workspace_mut()
-            .set(Some(descriptor.workspace_id.clone()));
-        app_state.ui_shell_mut().set_screen(ScreenKind::WorkspaceSession);
+            .select_workspace_for_session_display(&descriptor.workspace_id)
+            .expect("新規作成したワークスペースは表示選択できるはず");
 
         self.runtimes.insert(session_id.clone(), runtime_bundle);
 
@@ -210,18 +219,12 @@ impl WorkspaceSessionRuntimeBundle {
         session_id: &WorkspaceSessionId,
         workspace: &WorkspaceDescriptor,
     ) -> Result<Self, LegacyWorkspaceEditorOpenError> {
-        let legacy_editor = LegacyWorkspaceEditor::open(
-            workspace
-                .root_path
-                .to_str()
-                .unwrap_or_default(),
-        )?;
+        let legacy_editor =
+            LegacyWorkspaceEditor::open(workspace.root_path.to_str().unwrap_or_default())?;
         let explorer = LegacyExplorerModel::new(&legacy_editor);
         let tab_bar = TabBarUiController::new();
-        let terminal_ui = TerminalUiController::new(
-            session_id.as_str(),
-            workspace.root_path.clone(),
-        );
+        let terminal_ui =
+            TerminalUiController::new(session_id.as_str(), workspace.root_path.clone());
         let command_hub = CommandHubUiController::new(CommandHubActionModel::new(
             vec![WorkspaceItem {
                 id: workspace.workspace_id.as_str().to_string(),
@@ -346,8 +349,13 @@ impl TerminalPtyRuntimeIngress {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalPtyRequest {
-    RunCommand { terminal_id: String, command_line: String },
-    Interrupt { terminal_id: String },
+    RunCommand {
+        terminal_id: String,
+        command_line: String,
+    },
+    Interrupt {
+        terminal_id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -402,7 +410,10 @@ impl WorkspaceSessionFactoryError {
                 format!("ワークスペースを開けません: {}", path.display())
             }
             Self::EditorInitializationFailed { root_path, .. } => {
-                format!("ワークスペースセッション初期化に失敗しました: {}", root_path.display())
+                format!(
+                    "ワークスペースセッション初期化に失敗しました: {}",
+                    root_path.display()
+                )
             }
             Self::SessionCreationRejected { workspace_id, .. } => {
                 format!("ワークスペースセッションを作成できませんでした: {workspace_id}")
@@ -455,6 +466,7 @@ fn map_workspace_status(state: WorkspaceRailState) -> WorkspaceStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_host_state::ScreenKind;
     use nue_core::workspace::registry::{AddWorkspaceOutcome, WorkspacePathValidation};
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -509,13 +521,22 @@ mod tests {
             .expect("session が state に入る");
         assert_eq!(session.status(), WorkspaceSessionStatus::Ready);
         assert_eq!(app_state.ui_shell().screen(), ScreenKind::WorkspaceSession);
-        assert_eq!(app_state.active_workspace().current(), Some(&created.workspace_id));
+        assert_eq!(
+            app_state.active_workspace().current(),
+            Some(&created.workspace_id)
+        );
         assert!(factory.runtime(&created.session_id).is_some());
 
         let runtime = factory.runtime(&created.session_id).expect("runtime 取得");
         assert!(!runtime.explorer().nodes().is_empty());
-        assert_eq!(runtime.terminal_ui().workspace_session_id(), created.session_id.as_str());
-        assert_eq!(session.bundle().terminal().active_terminal_id(), Some(DEFAULT_TERMINAL_ID));
+        assert_eq!(
+            runtime.terminal_ui().workspace_session_id(),
+            created.session_id.as_str()
+        );
+        assert_eq!(
+            session.bundle().terminal().active_terminal_id(),
+            Some(DEFAULT_TERMINAL_ID)
+        );
         assert!(session.bundle().subscribers().editor_subscriber_attached());
     }
 
@@ -546,7 +567,10 @@ mod tests {
             .expect("session 作成");
         assert_eq!(session.status(), WorkspaceSessionStatus::Ready);
         assert_eq!(app_state.workspaces().len(), 1);
-        assert_eq!(app_state.workspaces().ordered()[0].status(), WorkspaceStatus::Ready);
+        assert_eq!(
+            app_state.workspaces().ordered()[0].status(),
+            WorkspaceStatus::Ready
+        );
     }
 
     #[test]
