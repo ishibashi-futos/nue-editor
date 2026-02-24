@@ -66,10 +66,8 @@ async fn launch_ui(config: LaunchConfig) -> Result<()> {
 }
 
 fn resolve_launch_config(cli_args: CliArgs) -> Result<LaunchConfig, String> {
-    nue_config::resolve_app_launch_config(AppLaunchConfigCliInput {
-        workspace_root: cli_args.workspace_root,
-    })
-    .map_err(|error| error.to_string())
+    let cli_input = AppLaunchConfigCliInput::new().with_workspace_root(cli_args.workspace_root);
+    LaunchConfig::resolve(cli_input).map_err(|error| error.to_string())
 }
 
 fn parse_cli_args(args: impl IntoIterator<Item = OsString>) -> Result<ParsedCli, AppError> {
@@ -273,10 +271,10 @@ mod tests {
         assert_eq!(
             result,
             AppCommand::Run(
-                nue_config::resolve_app_launch_config(AppLaunchConfigCliInput {
-                    workspace_root: Some(PathBuf::from("/tmp"))
-                })
-                .expect("valid config")
+                LaunchConfig::resolve(
+                    AppLaunchConfigCliInput::new().with_workspace_root(Some(PathBuf::from("/tmp"))),
+                )
+                .expect("valid config"),
             )
         );
     }

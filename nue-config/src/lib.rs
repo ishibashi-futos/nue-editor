@@ -4,7 +4,22 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AppLaunchConfigCliInput {
-    pub workspace_root: Option<PathBuf>,
+    workspace_root: Option<PathBuf>,
+}
+
+impl AppLaunchConfigCliInput {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn workspace_root(&self) -> Option<&Path> {
+        self.workspace_root.as_deref()
+    }
+
+    pub fn with_workspace_root(mut self, workspace_root: Option<PathBuf>) -> Self {
+        self.workspace_root = workspace_root;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -16,6 +31,12 @@ pub struct AppLaunchConfig {
 }
 
 impl AppLaunchConfig {
+    pub fn resolve(
+        cli_input: AppLaunchConfigCliInput,
+    ) -> Result<Self, AppLaunchConfigResolveError> {
+        resolve_app_launch_config(cli_input)
+    }
+
     pub fn workspace_root(&self) -> Option<&Path> {
         self.workspace_root.as_deref()
     }
@@ -36,11 +57,11 @@ impl AppLaunchConfig {
 pub fn resolve_app_launch_config(
     cli_input: AppLaunchConfigCliInput,
 ) -> Result<AppLaunchConfig, AppLaunchConfigResolveError> {
-    if let Some(path) = &cli_input.workspace_root
+    if let Some(path) = cli_input.workspace_root()
         && !path.is_absolute()
     {
         return Err(AppLaunchConfigResolveError::WorkspacePathMustBeAbsolute {
-            path: path.clone(),
+            path: path.to_path_buf(),
         });
     }
 
@@ -112,9 +133,10 @@ mod tests {
 
     #[test]
     fn absolute_workspace_root_is_accepted() {
-        let config = resolve_app_launch_config(AppLaunchConfigCliInput {
-            workspace_root: Some(PathBuf::from("/tmp/workspace")),
-        })
+        let config = resolve_app_launch_config(
+            AppLaunchConfigCliInput::new()
+                .with_workspace_root(Some(PathBuf::from("/tmp/workspace"))),
+        )
         .expect("absolute path should resolve");
 
         assert_eq!(config.workspace_root(), Some(Path::new("/tmp/workspace")));
@@ -122,9 +144,10 @@ mod tests {
 
     #[test]
     fn relative_workspace_root_is_rejected() {
-        let error = resolve_app_launch_config(AppLaunchConfigCliInput {
-            workspace_root: Some(PathBuf::from("relative/workspace")),
-        })
+        let error = resolve_app_launch_config(
+            AppLaunchConfigCliInput::new()
+                .with_workspace_root(Some(PathBuf::from("relative/workspace"))),
+        )
         .expect_err("relative path should fail");
 
         assert!(matches!(
@@ -132,5 +155,12 @@ mod tests {
             AppLaunchConfigResolveError::WorkspacePathMustBeAbsolute { .. }
         ));
         assert!(error.to_string().contains("絶対パス"));
+    }
+
+    #[test]
+    fn cli_input_defaults_to_no_workspace_root() {
+        let input = AppLaunchConfigCliInput::new();
+
+        assert_eq!(input.workspace_root(), None);
     }
 }
