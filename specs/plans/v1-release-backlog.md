@@ -161,6 +161,7 @@
   - 関連ステップ: `L1-3 / SS-3-1`
   - 作業内容の要約:
     - `LegacyExplorerModel` を使う Explorer 実ビューを実装し、ノード選択イベントをアプリ層へ通知する。
+    - 想定実装位置: `nue-ui/src/workspace/legacy_explorer.rs`（または `workspace` ドメイン配下の分割モジュール）
   - 受け入れ条件:
     - [ ] ファイル/ディレクトリ一覧が表示される
     - [ ] ファイル選択イベントが発火する
@@ -181,6 +182,7 @@
   - 関連ステップ: `L1-3 / SS-3-2`
   - 作業内容の要約:
     - 中央エディタの最小入力ビュー（テキスト表示/編集）を実装し、アプリ層へキー入力/カーソル/保存イベントを渡せるようにする。
+    - 想定接続先: `nue-ui::editor::input::EditorInputController`
   - 受け入れ条件:
     - [ ] テキスト入力と再描画が可能
     - [ ] 保存ショートカット/ボタンイベントが送出される
@@ -212,6 +214,7 @@
   - 関連ステップ: `L1-3 / SS-3-3`
   - 作業内容の要約:
     - `LegacyWorkspaceEditor` の委譲 API 経由で `EditorCore` イベントを定期/入力後に drain し、`EditorEventSubscriber` と UI 表示状態（通知、Minimap件数、SmartGutter件数等）へ反映する。
+    - `EditorEventSubscriber` の参照先は `nue-ui::editor::events::EditorEventSubscriber` を使用する。
     - 本マイルストーンではアプリ内操作由来のイベント反映を対象とし、エディタ外変更検知を起点にした再読み込みイベント連携は扱わない。
   - 受け入れ条件:
     - [ ] 編集・保存・差分同期イベント後に UI 表示が更新される
@@ -235,6 +238,7 @@
   - 関連ステップ: `L1-4 / SS-4-1`
   - 作業内容の要約:
     - Command Hub オーバーレイ実ビュー（入力欄、候補一覧、確認状態、通知表示）を実装し、`CommandHubUiController` と接続する。
+    - 想定接続先: `nue-ui::command::hub::CommandHubUiController`
   - 受け入れ条件:
     - [ ] 開閉・入力・候補選択・確認が UI 上で操作できる
     - [ ] 通知が表示される
@@ -292,6 +296,7 @@
   - 関連ステップ: `L1-4 / SS-4-3`
   - 作業内容の要約:
     - `TabBarUiController` と連携したタブバー実ビューを作成し、選択・並び替え・クローズ等の操作イベントを発火できるようにする。
+    - 想定接続先: `nue-ui::layout::tab_bar::TabBarUiController`
   - 受け入れ条件:
     - [ ] タブ一覧が表示され、最低限のタブ操作を UI から実行できる
   - 依存タスク: `T-012`
@@ -308,6 +313,7 @@
   - 関連ステップ: `L1-4 / SS-4-3`
   - 作業内容の要約:
     - ターミナル領域ビューを実装し、`TerminalUiController` と `TerminalScrollbackRenderer` の状態（キュー、監査、スクロールバック）を表示する。
+    - 想定接続先: `nue-ui::terminal::controller::TerminalUiController`, `nue-ui::terminal::display::TerminalScrollbackRenderer`
   - 受け入れ条件:
     - [ ] ターミナル領域でキュー/監査メッセージ/出力行が表示される
   - 依存タスク: `T-012`

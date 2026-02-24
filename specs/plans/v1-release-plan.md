@@ -93,13 +93,14 @@
   - `TerminalSession`（キュー/監査/スクロールバック/コンテキスト検証）
   - `SearchService`, `RepositoryService`, `commit_log` 取得
 - `nue-ui`
+  - ドメイン再編済み（`command` / `editor` / `terminal` / `workspace` / `layout` / `design`）
   - `CommandHubUiController`
   - `LegacyExplorerModel`
   - `EditorInputController`
   - `EditorEventSubscriber`（Minimap/SmartGutterイベント購読）
   - `TerminalUiController`, `TerminalScrollbackRenderer`
   - `TabBarUiController`
-  - `DesignSystem`, `UiStyleGuide`, フォント資産（JetBrainsMono埋め込みバイト列）
+  - `DesignSystem`, `ui_style`（スタイル定義）, フォント資産（JetBrainsMono埋め込みバイト列）
 
 ### 1.4 未実装/未接続の主要ギャップ
 
@@ -133,8 +134,8 @@
 ### 1.7 未接続・未使用コンポーネント/ユーティリティ
 
 - `nue-core::command::actions::CommandHubApplicationState(Sink)`（アプリ統合向けだが未使用）
-- `nue-ui::editor_events::EditorEventSubscriber`（UIイベント購読はあるが実画面未接続）
-- `nue-ui::terminal_display::TerminalScrollbackRenderer`（描画用整形器だが実表示未接続）
+- `nue-ui::editor::events::EditorEventSubscriber`（UIイベント購読はあるが実画面未接続）
+- `nue-ui::terminal::display::TerminalScrollbackRenderer`（描画用整形器だが実表示未接続）
 - `nue-core::workspace::repository` / `commit_log` / `search`（モデルはあるが専用 UI 未接続）
 
 ## 2. Phase2: ゴール状態の定義（ローカル起動・基本動作確認）
