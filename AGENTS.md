@@ -10,6 +10,16 @@
 - 後方互換性や例外処理のために処理を複雑にせず、シンプルで唯一の正解のために DRY な実装を行う
 - GPUI等の高度な特定課題解決ライブラリ/LSPを除き、原則として外部クレートに頼らず独自実装する。汎用ライブラリによるブラックボックス化を避け、ドメイン知識が反映された制御可能なコードを維持せよ
 
+## Token Efficiency
+
+- Never re-read files you just wrote or edited. You know the contents.
+- Never re-run commands to "verify" unless the outcome was uncertain.
+- Don't echo back large blocks of code or file contents unless asked.
+- Batch related edits into single operations. Don't make 5 edits when 1 handles it.
+- Skip confirmations like "I'll continue..."  Lust do it.
+- If a task needs 1 tool call, don't use 3. Plan before acting.
+- Do not summarize what you just did unless the result is ambiguous or you need additional input.
+
 ## プロジェクト概要
 
 Rust・GPUI製エディタアプリケーション

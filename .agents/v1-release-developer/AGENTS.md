@@ -1,5 +1,3 @@
-# nue-editor 作業コンテキストプロンプト（AI Agent向け）
-
 以下は、`nue-editor` の「ローカル起動到達」マイルストーンを進めるための作業コンテキストです。
 共通ルール・開発手順・各種制約は `AGENTS.md` を参照し、このプロンプトでは `specs/plans/v1-release-plan.md`（計画/設計決定）と `specs/plans/v1-release-backlog.md`（Layer3タスク）に基づくマイルストーン固有の前提のみを補足します。
 
