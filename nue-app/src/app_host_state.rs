@@ -60,6 +60,27 @@ impl AppHostState {
     pub fn sessions_mut(&mut self) -> &mut WorkspaceSessionListState {
         &mut self.sessions
     }
+
+    pub fn create_workspace_session(
+        &mut self,
+        id: WorkspaceSessionId,
+        workspace_id: WorkspaceId,
+        title: impl Into<String>,
+    ) -> Result<(), WorkspaceSessionCreationError> {
+        self.sessions.insert_new(WorkspaceSessionListEntry::new(
+            id,
+            workspace_id,
+            title,
+            WorkspaceSessionStatus::Starting,
+        ))
+    }
+
+    pub fn destroy_workspace_session(
+        &mut self,
+        id: &WorkspaceSessionId,
+    ) -> Option<WorkspaceSessionListEntry> {
+        self.sessions.remove(id)
+    }
 }
 
 impl Default for AppHostState {
@@ -366,6 +387,19 @@ impl WorkspaceSessionListState {
         self.entries.insert(id, entry);
     }
 
+    pub fn insert_new(
+        &mut self,
+        entry: WorkspaceSessionListEntry,
+    ) -> Result<(), WorkspaceSessionCreationError> {
+        let id = entry.id.clone();
+        if self.entries.contains_key(&id) {
+            return Err(WorkspaceSessionCreationError::DuplicateSessionId { id });
+        }
+        self.order.push(id.clone());
+        self.entries.insert(id, entry);
+        Ok(())
+    }
+
     pub fn remove(&mut self, id: &WorkspaceSessionId) -> Option<WorkspaceSessionListEntry> {
         let removed = self.entries.remove(id);
         if removed.is_some() {
@@ -378,6 +412,16 @@ impl WorkspaceSessionListState {
         self.order
             .iter()
             .filter_map(|id| self.entries.get(id))
+            .collect()
+    }
+
+    pub fn ordered_for_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Vec<&WorkspaceSessionListEntry> {
+        self.ordered()
+            .into_iter()
+            .filter(|entry| entry.workspace_id() == workspace_id)
             .collect()
     }
 }
@@ -397,6 +441,7 @@ pub struct WorkspaceSessionListEntry {
     workspace_id: WorkspaceId,
     title: String,
     status: WorkspaceSessionStatus,
+    bundle: WorkspaceSessionStateBundle,
 }
 
 impl WorkspaceSessionListEntry {
@@ -411,6 +456,7 @@ impl WorkspaceSessionListEntry {
             workspace_id,
             title: title.into(),
             status,
+            bundle: WorkspaceSessionStateBundle::default(),
         }
     }
 
@@ -429,6 +475,19 @@ impl WorkspaceSessionListEntry {
     pub fn status(&self) -> WorkspaceSessionStatus {
         self.status
     }
+
+    pub fn bundle(&self) -> &WorkspaceSessionStateBundle {
+        &self.bundle
+    }
+
+    pub fn bundle_mut(&mut self) -> &mut WorkspaceSessionStateBundle {
+        &mut self.bundle
+    }
+
+    pub fn with_bundle(mut self, bundle: WorkspaceSessionStateBundle) -> Self {
+        self.bundle = bundle;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -437,6 +496,242 @@ pub enum WorkspaceSessionStatus {
     Ready,
     Failed,
     Closed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkspaceSessionCreationError {
+    DuplicateSessionId { id: WorkspaceSessionId },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WorkspaceSessionStateBundle {
+    editor: EditorSessionState,
+    explorer: ExplorerSessionState,
+    command_hub: CommandHubSessionState,
+    tabs: TabSessionState,
+    terminal: TerminalSessionPanelState,
+    subscribers: SessionSubscribersState,
+}
+
+impl WorkspaceSessionStateBundle {
+    pub fn editor(&self) -> &EditorSessionState {
+        &self.editor
+    }
+
+    pub fn editor_mut(&mut self) -> &mut EditorSessionState {
+        &mut self.editor
+    }
+
+    pub fn explorer(&self) -> &ExplorerSessionState {
+        &self.explorer
+    }
+
+    pub fn explorer_mut(&mut self) -> &mut ExplorerSessionState {
+        &mut self.explorer
+    }
+
+    pub fn command_hub(&self) -> &CommandHubSessionState {
+        &self.command_hub
+    }
+
+    pub fn command_hub_mut(&mut self) -> &mut CommandHubSessionState {
+        &mut self.command_hub
+    }
+
+    pub fn tabs(&self) -> &TabSessionState {
+        &self.tabs
+    }
+
+    pub fn tabs_mut(&mut self) -> &mut TabSessionState {
+        &mut self.tabs
+    }
+
+    pub fn terminal(&self) -> &TerminalSessionPanelState {
+        &self.terminal
+    }
+
+    pub fn terminal_mut(&mut self) -> &mut TerminalSessionPanelState {
+        &mut self.terminal
+    }
+
+    pub fn subscribers(&self) -> &SessionSubscribersState {
+        &self.subscribers
+    }
+
+    pub fn subscribers_mut(&mut self) -> &mut SessionSubscribersState {
+        &mut self.subscribers
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EditorSessionState {
+    active_document_path: Option<PathBuf>,
+    dirty_document_count: usize,
+}
+
+impl EditorSessionState {
+    pub fn active_document_path(&self) -> Option<&PathBuf> {
+        self.active_document_path.as_ref()
+    }
+
+    pub fn set_active_document_path(&mut self, path: Option<PathBuf>) {
+        self.active_document_path = path;
+    }
+
+    pub fn dirty_document_count(&self) -> usize {
+        self.dirty_document_count
+    }
+
+    pub fn set_dirty_document_count(&mut self, count: usize) {
+        self.dirty_document_count = count;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ExplorerSessionState {
+    selected_path: Option<PathBuf>,
+    expanded_paths: Vec<PathBuf>,
+}
+
+impl ExplorerSessionState {
+    pub fn selected_path(&self) -> Option<&PathBuf> {
+        self.selected_path.as_ref()
+    }
+
+    pub fn set_selected_path(&mut self, path: Option<PathBuf>) {
+        self.selected_path = path;
+    }
+
+    pub fn expanded_paths(&self) -> &[PathBuf] {
+        &self.expanded_paths
+    }
+
+    pub fn set_expanded_paths(&mut self, paths: Vec<PathBuf>) {
+        self.expanded_paths = paths;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CommandHubSessionState {
+    is_open: bool,
+    query: String,
+}
+
+impl CommandHubSessionState {
+    pub fn is_open(&self) -> bool {
+        self.is_open
+    }
+
+    pub fn set_is_open(&mut self, is_open: bool) {
+        self.is_open = is_open;
+    }
+
+    pub fn query(&self) -> &str {
+        &self.query
+    }
+
+    pub fn set_query(&mut self, query: impl Into<String>) {
+        self.query = query.into();
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TabSessionState {
+    active_tab_id: Option<String>,
+    tab_order: Vec<String>,
+}
+
+impl TabSessionState {
+    pub fn active_tab_id(&self) -> Option<&str> {
+        self.active_tab_id.as_deref()
+    }
+
+    pub fn set_active_tab_id(&mut self, tab_id: Option<String>) {
+        self.active_tab_id = tab_id;
+    }
+
+    pub fn tab_order(&self) -> &[String] {
+        &self.tab_order
+    }
+
+    pub fn set_tab_order(&mut self, tab_order: Vec<String>) {
+        self.tab_order = tab_order;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TerminalSessionPanelState {
+    active_terminal_id: Option<String>,
+    terminal_ids: Vec<String>,
+}
+
+impl TerminalSessionPanelState {
+    pub fn active_terminal_id(&self) -> Option<&str> {
+        self.active_terminal_id.as_deref()
+    }
+
+    pub fn set_active_terminal_id(&mut self, terminal_id: Option<String>) {
+        self.active_terminal_id = terminal_id;
+    }
+
+    pub fn terminal_ids(&self) -> &[String] {
+        &self.terminal_ids
+    }
+
+    pub fn set_terminal_ids(&mut self, terminal_ids: Vec<String>) {
+        self.terminal_ids = terminal_ids;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SessionSubscribersState {
+    editor_subscriber_attached: bool,
+    explorer_subscriber_attached: bool,
+    command_hub_subscriber_attached: bool,
+    tab_subscriber_attached: bool,
+    terminal_subscriber_attached: bool,
+}
+
+impl SessionSubscribersState {
+    pub fn editor_subscriber_attached(&self) -> bool {
+        self.editor_subscriber_attached
+    }
+
+    pub fn set_editor_subscriber_attached(&mut self, attached: bool) {
+        self.editor_subscriber_attached = attached;
+    }
+
+    pub fn explorer_subscriber_attached(&self) -> bool {
+        self.explorer_subscriber_attached
+    }
+
+    pub fn set_explorer_subscriber_attached(&mut self, attached: bool) {
+        self.explorer_subscriber_attached = attached;
+    }
+
+    pub fn command_hub_subscriber_attached(&self) -> bool {
+        self.command_hub_subscriber_attached
+    }
+
+    pub fn set_command_hub_subscriber_attached(&mut self, attached: bool) {
+        self.command_hub_subscriber_attached = attached;
+    }
+
+    pub fn tab_subscriber_attached(&self) -> bool {
+        self.tab_subscriber_attached
+    }
+
+    pub fn set_tab_subscriber_attached(&mut self, attached: bool) {
+        self.tab_subscriber_attached = attached;
+    }
+
+    pub fn terminal_subscriber_attached(&self) -> bool {
+        self.terminal_subscriber_attached
+    }
+
+    pub fn set_terminal_subscriber_attached(&mut self, attached: bool) {
+        self.terminal_subscriber_attached = attached;
+    }
 }
 
 #[cfg(test)]
@@ -513,5 +808,86 @@ mod tests {
         );
         assert_eq!(state.sessions().ordered().len(), 1);
         assert_eq!(state.active_workspace().current(), Some(&workspace_id));
+    }
+
+    #[test]
+    fn app_layer_can_create_and_destroy_workspace_session_bundles() {
+        let mut state = AppHostState::empty();
+        let workspace_id = WorkspaceId::new("ws-1");
+        let session_id = WorkspaceSessionId::new("session-1");
+
+        state
+            .create_workspace_session(session_id.clone(), workspace_id.clone(), "Session 1")
+            .expect("session should be created");
+
+        let session = state
+            .sessions()
+            .get(&session_id)
+            .expect("session should exist after creation");
+        assert_eq!(session.workspace_id(), &workspace_id);
+        assert_eq!(session.status(), WorkspaceSessionStatus::Starting);
+        assert_eq!(session.bundle().command_hub().is_open(), false);
+        assert_eq!(session.bundle().tabs().tab_order(), &[] as &[String]);
+
+        let removed = state.destroy_workspace_session(&session_id);
+        assert!(removed.is_some());
+        assert!(state.sessions().get(&session_id).is_none());
+    }
+
+    #[test]
+    fn session_bundles_scale_to_multiple_workspaces() {
+        let mut state = AppHostState::empty();
+        let workspace_a = WorkspaceId::new("ws-a");
+        let workspace_b = WorkspaceId::new("ws-b");
+
+        state
+            .create_workspace_session(
+                WorkspaceSessionId::new("session-a1"),
+                workspace_a.clone(),
+                "A-1",
+            )
+            .expect("a1");
+        state
+            .create_workspace_session(
+                WorkspaceSessionId::new("session-a2"),
+                workspace_a.clone(),
+                "A-2",
+            )
+            .expect("a2");
+        state
+            .create_workspace_session(
+                WorkspaceSessionId::new("session-b1"),
+                workspace_b.clone(),
+                "B-1",
+            )
+            .expect("b1");
+
+        assert_eq!(
+            state.sessions().ordered_for_workspace(&workspace_a).len(),
+            2
+        );
+        assert_eq!(
+            state.sessions().ordered_for_workspace(&workspace_b).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn session_creation_rejects_duplicate_session_id() {
+        let mut state = AppHostState::empty();
+        let workspace_id = WorkspaceId::new("ws-dup");
+        let session_id = WorkspaceSessionId::new("session-dup");
+
+        state
+            .create_workspace_session(session_id.clone(), workspace_id.clone(), "first")
+            .expect("first creation");
+        let error = state
+            .create_workspace_session(session_id.clone(), workspace_id, "second")
+            .expect_err("duplicate should fail");
+
+        assert_eq!(
+            error,
+            WorkspaceSessionCreationError::DuplicateSessionId { id: session_id }
+        );
     }
 }
