@@ -1,0 +1,897 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandMode {
+    Action,
+    Navigation,
+    Intent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedCommand {
+    pub mode: CommandMode,
+    pub domain: String,
+    pub verb: String,
+    pub target: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PickerCandidate {
+    pub id: String,
+    pub label: String,
+    pub command: ParsedCommand,
+    pub requires_confirmation: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PickerViewState {
+    Closed,
+    Listing,
+    Confirming,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PickerSnapshot {
+    pub state: PickerViewState,
+    pub selected_candidate_id: Option<String>,
+    pub visible_candidates: Vec<PickerCandidate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PickerExecuteOutcome {
+    NoSelection,
+    NeedsConfirmation { candidate_id: String },
+    Executed(PickerCandidate),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PickerCancelOutcome {
+    Noop,
+    Closed { candidate_id: Option<String> },
+    BackToListing { candidate_id: Option<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PickerSelectOutcome {
+    Noop,
+    Selected { candidate_id: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandPaletteShortcut {
+    CmdShiftP,
+    CtrlShiftP,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandHubKeyInput {
+    CmdShiftP,
+    CtrlShiftP,
+    Escape,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandHubVisibilityState {
+    Hidden,
+    Visible,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandHubOpenReason {
+    Shortcut(CommandPaletteShortcut),
+    LauncherClick,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandHubCloseReason {
+    EscapeKey,
+    OutsideClick,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandHubVisibilitySnapshot {
+    pub state: CommandHubVisibilityState,
+    pub revision: u64,
+    pub last_open_reason: Option<CommandHubOpenReason>,
+    pub last_close_reason: Option<CommandHubCloseReason>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandHubVisibilityOutcome {
+    Noop,
+    Opened(CommandHubOpenReason),
+    Closed(CommandHubCloseReason),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandHubVisibilityController {
+    state: CommandHubVisibilityState,
+    revision: u64,
+    last_open_reason: Option<CommandHubOpenReason>,
+    last_close_reason: Option<CommandHubCloseReason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandPicker {
+    state: PickerViewState,
+    visible_candidates: Vec<PickerCandidate>,
+    selected_index: Option<usize>,
+    confirming_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandHubSessionSnapshot {
+    pub input: String,
+    pub parsed_command: ParsedCommand,
+    pub picker: PickerSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandHubSession {
+    input: String,
+    parsed_command: ParsedCommand,
+    picker: CommandPicker,
+}
+
+pub fn parse_command(input: &str) -> ParsedCommand {
+    let trimmed = input.trim();
+    if let Some(action_input) = trimmed.strip_prefix('>') {
+        return parse_action_mode(action_input);
+    }
+    if let Some(navigation_input) = trimmed.strip_prefix(':') {
+        return parse_navigation_mode(navigation_input);
+    }
+
+    ParsedCommand {
+        mode: CommandMode::Intent,
+        domain: "intent".to_string(),
+        verb: "search".to_string(),
+        target: normalize_target(trimmed),
+    }
+}
+
+fn parse_action_mode(input: &str) -> ParsedCommand {
+    let (domain_raw, body_raw) = input.split_once(':').unwrap_or(("action", input));
+
+    let body = body_raw.trim();
+    let (verb_raw, target_raw) = split_head_token(body);
+    let verb = normalize_keyword(verb_raw);
+    let verb = if verb.is_empty() {
+        "run".to_string()
+    } else {
+        verb
+    };
+    let target = parse_action_target(target_raw);
+
+    let domain = normalize_keyword(domain_raw);
+    let domain = if domain.is_empty() {
+        "action".to_string()
+    } else {
+        domain
+    };
+
+    ParsedCommand {
+        mode: CommandMode::Action,
+        domain,
+        verb,
+        target,
+    }
+}
+
+fn parse_navigation_mode(input: &str) -> ParsedCommand {
+    ParsedCommand {
+        mode: CommandMode::Navigation,
+        domain: "navigation".to_string(),
+        verb: "open".to_string(),
+        target: normalize_target(input),
+    }
+}
+
+impl CommandPicker {
+    pub fn new() -> Self {
+        Self {
+            state: PickerViewState::Closed,
+            visible_candidates: Vec::new(),
+            selected_index: None,
+            confirming_index: None,
+        }
+    }
+
+    pub fn open(&mut self, candidates: Vec<PickerCandidate>) {
+        self.state = PickerViewState::Listing;
+        self.selected_index = if candidates.is_empty() { None } else { Some(0) };
+        self.confirming_index = None;
+        self.visible_candidates = candidates;
+    }
+
+    pub fn snapshot(&self) -> PickerSnapshot {
+        PickerSnapshot {
+            state: self.state,
+            selected_candidate_id: self
+                .selected_index
+                .and_then(|index| self.visible_candidates.get(index))
+                .map(|candidate| candidate.id.clone()),
+            visible_candidates: self.visible_candidates.clone(),
+        }
+    }
+
+    pub fn request_execute_selected(&mut self) -> PickerExecuteOutcome {
+        let Some(index) = self.selected_index else {
+            return PickerExecuteOutcome::NoSelection;
+        };
+        if self.state != PickerViewState::Listing {
+            return PickerExecuteOutcome::NoSelection;
+        }
+        let Some(candidate) = self.visible_candidates.get(index).cloned() else {
+            return PickerExecuteOutcome::NoSelection;
+        };
+
+        if candidate.requires_confirmation {
+            self.state = PickerViewState::Confirming;
+            self.confirming_index = Some(index);
+            return PickerExecuteOutcome::NeedsConfirmation {
+                candidate_id: candidate.id,
+            };
+        }
+
+        self.close();
+        PickerExecuteOutcome::Executed(candidate)
+    }
+
+    pub fn confirm_execute(&mut self) -> PickerExecuteOutcome {
+        if self.state != PickerViewState::Confirming {
+            return PickerExecuteOutcome::NoSelection;
+        }
+        let Some(index) = self.confirming_index else {
+            return PickerExecuteOutcome::NoSelection;
+        };
+        let Some(candidate) = self.visible_candidates.get(index).cloned() else {
+            return PickerExecuteOutcome::NoSelection;
+        };
+
+        self.close();
+        PickerExecuteOutcome::Executed(candidate)
+    }
+
+    pub fn cancel(&mut self) -> PickerCancelOutcome {
+        if self.state == PickerViewState::Closed {
+            return PickerCancelOutcome::Noop;
+        }
+
+        if self.state == PickerViewState::Confirming {
+            let candidate_id = self
+                .confirming_index
+                .and_then(|index| self.visible_candidates.get(index))
+                .map(|candidate| candidate.id.clone());
+            self.state = PickerViewState::Listing;
+            self.confirming_index = None;
+            return PickerCancelOutcome::BackToListing { candidate_id };
+        }
+
+        let candidate_id = self
+            .selected_index
+            .and_then(|index| self.visible_candidates.get(index))
+            .map(|candidate| candidate.id.clone());
+        self.close();
+        PickerCancelOutcome::Closed { candidate_id }
+    }
+
+    pub fn select_next(&mut self) -> PickerSelectOutcome {
+        if self.state != PickerViewState::Listing {
+            return PickerSelectOutcome::Noop;
+        }
+        if self.visible_candidates.is_empty() {
+            return PickerSelectOutcome::Noop;
+        }
+
+        let next_index = match self.selected_index {
+            Some(current) if current + 1 < self.visible_candidates.len() => current + 1,
+            _ => 0,
+        };
+        self.selected_index = Some(next_index);
+        let candidate = &self.visible_candidates[next_index];
+
+        PickerSelectOutcome::Selected {
+            candidate_id: candidate.id.clone(),
+        }
+    }
+
+    pub fn select_previous(&mut self) -> PickerSelectOutcome {
+        if self.state != PickerViewState::Listing {
+            return PickerSelectOutcome::Noop;
+        }
+        if self.visible_candidates.is_empty() {
+            return PickerSelectOutcome::Noop;
+        }
+
+        let previous_index = match self.selected_index {
+            Some(current) if current > 0 => current - 1,
+            _ => self.visible_candidates.len() - 1,
+        };
+        self.selected_index = Some(previous_index);
+        let candidate = &self.visible_candidates[previous_index];
+
+        PickerSelectOutcome::Selected {
+            candidate_id: candidate.id.clone(),
+        }
+    }
+
+    pub fn hide(&mut self) {
+        self.close();
+    }
+
+    fn close(&mut self) {
+        self.state = PickerViewState::Closed;
+        self.selected_index = None;
+        self.confirming_index = None;
+        self.visible_candidates.clear();
+    }
+}
+
+impl Default for CommandPicker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CommandHubSession {
+    pub fn new() -> Self {
+        Self {
+            input: String::new(),
+            parsed_command: parse_command(""),
+            picker: CommandPicker::new(),
+        }
+    }
+
+    pub fn apply_input(&mut self, input: impl Into<String>, candidates: Vec<PickerCandidate>) {
+        self.input = input.into();
+        self.parsed_command = parse_command(&self.input);
+        if should_open_picker(&self.parsed_command) {
+            self.picker.open(candidates);
+        } else {
+            self.picker.hide();
+        }
+    }
+
+    pub fn snapshot(&self) -> CommandHubSessionSnapshot {
+        CommandHubSessionSnapshot {
+            input: self.input.clone(),
+            parsed_command: self.parsed_command.clone(),
+            picker: self.picker.snapshot(),
+        }
+    }
+
+    pub fn select_next_candidate(&mut self) -> PickerSelectOutcome {
+        self.picker.select_next()
+    }
+
+    pub fn select_previous_candidate(&mut self) -> PickerSelectOutcome {
+        self.picker.select_previous()
+    }
+
+    pub fn execute_selected_candidate(&mut self) -> PickerExecuteOutcome {
+        self.picker.request_execute_selected()
+    }
+
+    pub fn confirm_selected_candidate(&mut self) -> PickerExecuteOutcome {
+        self.picker.confirm_execute()
+    }
+
+    pub fn cancel_picker(&mut self) -> PickerCancelOutcome {
+        self.picker.cancel()
+    }
+}
+
+impl Default for CommandHubSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn should_open_picker(command: &ParsedCommand) -> bool {
+    match command.mode {
+        CommandMode::Action => should_open_action_picker(command.verb.as_str()),
+        CommandMode::Navigation => true,
+        CommandMode::Intent => false,
+    }
+}
+
+fn should_open_action_picker(verb: &str) -> bool {
+    matches!(verb, "list" | "remove" | "close" | "kill")
+}
+
+impl CommandHubVisibilityController {
+    pub fn new() -> Self {
+        Self {
+            state: CommandHubVisibilityState::Hidden,
+            revision: 0,
+            last_open_reason: None,
+            last_close_reason: None,
+        }
+    }
+
+    pub fn snapshot(&self) -> CommandHubVisibilitySnapshot {
+        CommandHubVisibilitySnapshot {
+            state: self.state,
+            revision: self.revision,
+            last_open_reason: self.last_open_reason,
+            last_close_reason: self.last_close_reason,
+        }
+    }
+
+    pub fn handle_key_input(&mut self, input: CommandHubKeyInput) -> CommandHubVisibilityOutcome {
+        match input {
+            CommandHubKeyInput::CmdShiftP => self.open(CommandHubOpenReason::Shortcut(
+                CommandPaletteShortcut::CmdShiftP,
+            )),
+            CommandHubKeyInput::CtrlShiftP => self.open(CommandHubOpenReason::Shortcut(
+                CommandPaletteShortcut::CtrlShiftP,
+            )),
+            CommandHubKeyInput::Escape => self.close(CommandHubCloseReason::EscapeKey),
+            CommandHubKeyInput::Other => CommandHubVisibilityOutcome::Noop,
+        }
+    }
+
+    pub fn open_by_launcher_click(&mut self) -> CommandHubVisibilityOutcome {
+        self.open(CommandHubOpenReason::LauncherClick)
+    }
+
+    pub fn close_by_outside_click(&mut self) -> CommandHubVisibilityOutcome {
+        self.close(CommandHubCloseReason::OutsideClick)
+    }
+
+    fn open(&mut self, reason: CommandHubOpenReason) -> CommandHubVisibilityOutcome {
+        if self.state == CommandHubVisibilityState::Visible {
+            return CommandHubVisibilityOutcome::Noop;
+        }
+
+        self.state = CommandHubVisibilityState::Visible;
+        self.revision += 1;
+        self.last_open_reason = Some(reason);
+        self.last_close_reason = None;
+
+        CommandHubVisibilityOutcome::Opened(reason)
+    }
+
+    fn close(&mut self, reason: CommandHubCloseReason) -> CommandHubVisibilityOutcome {
+        if self.state == CommandHubVisibilityState::Hidden {
+            return CommandHubVisibilityOutcome::Noop;
+        }
+
+        self.state = CommandHubVisibilityState::Hidden;
+        self.revision += 1;
+        self.last_close_reason = Some(reason);
+
+        CommandHubVisibilityOutcome::Closed(reason)
+    }
+}
+
+impl Default for CommandHubVisibilityController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn normalize_keyword(value: &str) -> String {
+    let normalized = value
+        .trim()
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>();
+
+    normalized
+        .split_whitespace()
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<&str>>()
+        .join("_")
+}
+
+fn normalize_target(value: &str) -> String {
+    value
+        .split_whitespace()
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| segment.to_ascii_lowercase())
+        .collect::<Vec<String>>()
+        .join(" ")
+}
+
+fn parse_action_target(value: &str) -> String {
+    let target = value.trim();
+    if target.is_empty() {
+        return String::new();
+    }
+
+    if let Some(literal) = parse_literal_flag_target(target) {
+        return literal;
+    }
+    if let Some(literal) = parse_double_quoted_target(target) {
+        return literal;
+    }
+
+    normalize_target(target)
+}
+
+fn parse_literal_flag_target(value: &str) -> Option<String> {
+    let (flag, literal_body) = split_head_token(value);
+    if flag.eq_ignore_ascii_case("--literal") {
+        return Some(literal_body.to_string());
+    }
+    None
+}
+
+fn parse_double_quoted_target(value: &str) -> Option<String> {
+    if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
+        return Some(value[1..value.len() - 1].to_string());
+    }
+    None
+}
+
+fn split_head_token(value: &str) -> (&str, &str) {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return ("", "");
+    }
+
+    if let Some((index, character)) = trimmed.char_indices().find(|(_, ch)| ch.is_whitespace()) {
+        let next_index = index + character.len_utf8();
+        let head = &trimmed[..index];
+        let tail = trimmed[next_index..].trim_start();
+        return (head, tail);
+    }
+
+    (trimmed, "")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn action_candidate() -> PickerCandidate {
+        PickerCandidate {
+            id: "candidate-action-1".to_string(),
+            label: "Terminal: Split Terminal".to_string(),
+            command: ParsedCommand {
+                mode: CommandMode::Action,
+                domain: "terminal".to_string(),
+                verb: "split".to_string(),
+                target: "terminal".to_string(),
+            },
+            requires_confirmation: false,
+        }
+    }
+
+    fn destructive_candidate() -> PickerCandidate {
+        PickerCandidate {
+            id: "candidate-action-2".to_string(),
+            label: "Workspace: Remove current".to_string(),
+            command: ParsedCommand {
+                mode: CommandMode::Action,
+                domain: "workspace".to_string(),
+                verb: "remove".to_string(),
+                target: "current".to_string(),
+            },
+            requires_confirmation: true,
+        }
+    }
+
+    fn workspace_candidate() -> PickerCandidate {
+        PickerCandidate {
+            id: "candidate-workspace-1".to_string(),
+            label: "Workspace: current".to_string(),
+            command: ParsedCommand {
+                mode: CommandMode::Action,
+                domain: "workspace".to_string(),
+                verb: "activate".to_string(),
+                target: "current".to_string(),
+            },
+            requires_confirmation: false,
+        }
+    }
+
+    fn navigation_candidate() -> PickerCandidate {
+        PickerCandidate {
+            id: "candidate-navigation-1".to_string(),
+            label: "specs/spec-nue.md".to_string(),
+            command: ParsedCommand {
+                mode: CommandMode::Navigation,
+                domain: "navigation".to_string(),
+                verb: "open".to_string(),
+                target: "specs/spec-nue.md".to_string(),
+            },
+            requires_confirmation: false,
+        }
+    }
+
+    #[test]
+    fn action_modeはdomain_verb_targetを正規化して解析する() {
+        let parsed = parse_command("> Terminal: Split Terminal");
+
+        assert_eq!(
+            parsed,
+            ParsedCommand {
+                mode: CommandMode::Action,
+                domain: "terminal".to_string(),
+                verb: "split".to_string(),
+                target: "terminal".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn navigation_modeは共通フォーマットで正規化する() {
+        let parsed = parse_command(":src/lib.rs");
+
+        assert_eq!(
+            parsed,
+            ParsedCommand {
+                mode: CommandMode::Navigation,
+                domain: "navigation".to_string(),
+                verb: "open".to_string(),
+                target: "src/lib.rs".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn action_modeはダブルクオートtargetをliteralとして保持する() {
+        let parsed = parse_command("> Workspace: Add \"~/Work/My Project\"");
+
+        assert_eq!(
+            parsed,
+            ParsedCommand {
+                mode: CommandMode::Action,
+                domain: "workspace".to_string(),
+                verb: "add".to_string(),
+                target: "~/Work/My Project".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn action_modeはliteralフラグ指定時にtargetの大文字小文字を保持する() {
+        let parsed = parse_command("> Terminal: Run --LiTeRaL Cargo Test -- --nocapture");
+
+        assert_eq!(
+            parsed,
+            ParsedCommand {
+                mode: CommandMode::Action,
+                domain: "terminal".to_string(),
+                verb: "run".to_string(),
+                target: "Cargo Test -- --nocapture".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn pickerは候補一覧を表示しキャンセルで閉じる() {
+        let mut picker = CommandPicker::new();
+
+        picker.open(vec![action_candidate()]);
+        assert_eq!(
+            picker.snapshot(),
+            PickerSnapshot {
+                state: PickerViewState::Listing,
+                selected_candidate_id: Some("candidate-action-1".to_string()),
+                visible_candidates: vec![action_candidate()],
+            }
+        );
+
+        assert_eq!(
+            picker.cancel(),
+            PickerCancelOutcome::Closed {
+                candidate_id: Some("candidate-action-1".to_string()),
+            }
+        );
+        assert_eq!(picker.snapshot().state, PickerViewState::Closed);
+    }
+
+    #[test]
+    fn 確認必須候補は確認フローを経由して実行される() {
+        let mut picker = CommandPicker::new();
+        let destructive = destructive_candidate();
+
+        picker.open(vec![destructive.clone()]);
+
+        let needs_confirmation = picker.request_execute_selected();
+        assert_eq!(
+            needs_confirmation,
+            PickerExecuteOutcome::NeedsConfirmation {
+                candidate_id: destructive.id.clone(),
+            }
+        );
+        assert_eq!(picker.snapshot().state, PickerViewState::Confirming);
+
+        let executed = picker.confirm_execute();
+        assert_eq!(executed, PickerExecuteOutcome::Executed(destructive));
+        assert_eq!(picker.snapshot().state, PickerViewState::Closed);
+    }
+
+    #[test]
+    fn 確認ダイアログ中のキャンセルは一覧表示へ戻る() {
+        let mut picker = CommandPicker::new();
+
+        picker.open(vec![destructive_candidate()]);
+        let _ = picker.request_execute_selected();
+
+        assert_eq!(
+            picker.cancel(),
+            PickerCancelOutcome::BackToListing {
+                candidate_id: Some("candidate-action-2".to_string()),
+            }
+        );
+        assert_eq!(picker.snapshot().state, PickerViewState::Listing);
+    }
+
+    #[test]
+    fn cmd_shift_p入力でcommand_hubを開く() {
+        let mut controller = CommandHubVisibilityController::new();
+
+        let outcome = controller.handle_key_input(CommandHubKeyInput::CmdShiftP);
+
+        assert_eq!(
+            outcome,
+            CommandHubVisibilityOutcome::Opened(CommandHubOpenReason::Shortcut(
+                CommandPaletteShortcut::CmdShiftP
+            ))
+        );
+        assert_eq!(
+            controller.snapshot(),
+            CommandHubVisibilitySnapshot {
+                state: CommandHubVisibilityState::Visible,
+                revision: 1,
+                last_open_reason: Some(CommandHubOpenReason::Shortcut(
+                    CommandPaletteShortcut::CmdShiftP
+                )),
+                last_close_reason: None,
+            }
+        );
+    }
+
+    #[test]
+    fn ctrl_shift_p入力でもcommand_hubを開く() {
+        let mut controller = CommandHubVisibilityController::new();
+
+        let outcome = controller.handle_key_input(CommandHubKeyInput::CtrlShiftP);
+
+        assert_eq!(
+            outcome,
+            CommandHubVisibilityOutcome::Opened(CommandHubOpenReason::Shortcut(
+                CommandPaletteShortcut::CtrlShiftP
+            ))
+        );
+        assert_eq!(
+            controller.snapshot().state,
+            CommandHubVisibilityState::Visible
+        );
+    }
+
+    #[test]
+    fn ランチャークリックでcommand_hubを開く() {
+        let mut controller = CommandHubVisibilityController::new();
+
+        let outcome = controller.open_by_launcher_click();
+
+        assert_eq!(
+            outcome,
+            CommandHubVisibilityOutcome::Opened(CommandHubOpenReason::LauncherClick)
+        );
+        assert_eq!(
+            controller.snapshot().state,
+            CommandHubVisibilityState::Visible
+        );
+    }
+
+    #[test]
+    fn 表示中にescape入力するとcommand_hubを閉じる() {
+        let mut controller = CommandHubVisibilityController::new();
+        let _ = controller.open_by_launcher_click();
+
+        let outcome = controller.handle_key_input(CommandHubKeyInput::Escape);
+
+        assert_eq!(
+            outcome,
+            CommandHubVisibilityOutcome::Closed(CommandHubCloseReason::EscapeKey)
+        );
+        assert_eq!(
+            controller.snapshot(),
+            CommandHubVisibilitySnapshot {
+                state: CommandHubVisibilityState::Hidden,
+                revision: 2,
+                last_open_reason: Some(CommandHubOpenReason::LauncherClick),
+                last_close_reason: Some(CommandHubCloseReason::EscapeKey),
+            }
+        );
+    }
+
+    #[test]
+    fn 表示中に別要素をクリックするとcommand_hubを閉じる() {
+        let mut controller = CommandHubVisibilityController::new();
+        let _ = controller.handle_key_input(CommandHubKeyInput::CmdShiftP);
+
+        let outcome = controller.close_by_outside_click();
+
+        assert_eq!(
+            outcome,
+            CommandHubVisibilityOutcome::Closed(CommandHubCloseReason::OutsideClick)
+        );
+        assert_eq!(
+            controller.snapshot().state,
+            CommandHubVisibilityState::Hidden
+        );
+    }
+
+    #[test]
+    fn sessionはaction_navigation入力を切り替えて正規化する() {
+        let mut session = CommandHubSession::new();
+
+        session.apply_input("> Workspace: List", vec![workspace_candidate()]);
+        assert_eq!(
+            session.snapshot().parsed_command,
+            ParsedCommand {
+                mode: CommandMode::Action,
+                domain: "workspace".to_string(),
+                verb: "list".to_string(),
+                target: "".to_string(),
+            }
+        );
+        assert_eq!(session.snapshot().picker.state, PickerViewState::Listing);
+
+        session.apply_input(":SPECS/Spec-Nue.md", vec![navigation_candidate()]);
+        assert_eq!(
+            session.snapshot().parsed_command,
+            ParsedCommand {
+                mode: CommandMode::Navigation,
+                domain: "navigation".to_string(),
+                verb: "open".to_string(),
+                target: "specs/spec-nue.md".to_string(),
+            }
+        );
+        assert_eq!(
+            session.snapshot().picker.selected_candidate_id,
+            Some("candidate-navigation-1".to_string())
+        );
+    }
+
+    #[test]
+    fn sessionはpickerで次候補を選択して実行する() {
+        let mut session = CommandHubSession::new();
+        let first = workspace_candidate();
+        let second = action_candidate();
+
+        session.apply_input("> Workspace: List", vec![first, second.clone()]);
+        assert_eq!(
+            session.select_next_candidate(),
+            PickerSelectOutcome::Selected {
+                candidate_id: second.id.clone(),
+            }
+        );
+
+        assert_eq!(
+            session.execute_selected_candidate(),
+            PickerExecuteOutcome::Executed(second)
+        );
+    }
+
+    #[test]
+    fn 非listのaction入力時はpickerを開かない() {
+        let mut session = CommandHubSession::new();
+
+        session.apply_input("> Terminal: Run cargo test", vec![action_candidate()]);
+
+        assert_eq!(session.snapshot().picker.state, PickerViewState::Closed);
+    }
+
+    #[test]
+    fn 破壊的action入力時はpickerを開く() {
+        let mut session = CommandHubSession::new();
+
+        session.apply_input("> Workspace: Remove", vec![destructive_candidate()]);
+
+        assert_eq!(session.snapshot().picker.state, PickerViewState::Listing);
+    }
+}
