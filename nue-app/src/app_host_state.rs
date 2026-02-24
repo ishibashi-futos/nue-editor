@@ -199,6 +199,10 @@ impl WorkspaceListEntry {
         self.status = status;
         self
     }
+
+    pub fn set_status(&mut self, status: WorkspaceStatus) {
+        self.status = status;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -468,6 +472,10 @@ impl WorkspaceSessionListEntry {
     pub fn with_bundle(mut self, bundle: WorkspaceSessionStateBundle) -> Self {
         self.bundle = bundle;
         self
+    }
+
+    pub fn set_status(&mut self, status: WorkspaceSessionStatus) {
+        self.status = status;
     }
 }
 

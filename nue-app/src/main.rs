@@ -1,4 +1,5 @@
 pub mod app_host_state;
+pub mod workspace_session_factory;
 
 use std::env;
 use std::ffi::OsString;
