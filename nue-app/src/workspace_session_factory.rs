@@ -5,7 +5,8 @@ use tokio::sync::mpsc;
 
 use crate::app_host_state::{
     AppHostState, NotificationId, NotificationLevel, WorkspaceId, WorkspaceListEntry,
-    WorkspaceSessionCreationError, WorkspaceSessionId, WorkspaceSessionStatus, WorkspaceStatus,
+    WorkspaceSessionCreationError, WorkspaceSessionId, WorkspaceSessionListEntry,
+    WorkspaceSessionStatus, WorkspaceStatus,
 };
 use nue_core::command::actions::{CommandHubActionModel, TerminalItem, WorkspaceItem};
 use nue_core::workspace::legacy_workspace_editor::{
@@ -52,18 +53,14 @@ impl WorkspaceSessionFactory {
         workspace_root: impl AsRef<Path>,
     ) -> Result<WorkspaceSessionCreated, WorkspaceSessionFactoryError> {
         let workspace_root = workspace_root.as_ref();
-        let canonical_root = std::fs::canonicalize(workspace_root).map_err(|_| {
-            WorkspaceSessionFactoryError::WorkspacePathUnavailable {
-                path: workspace_root.to_path_buf(),
-            }
-        })?;
+        let canonical_root = canonicalize_workspace_root(workspace_root)?;
 
         let workspace_label = canonical_root
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| canonical_root.display().to_string());
-        let workspace_id = WorkspaceId::new(format!("workspace:{}", canonical_root.display()));
+        let workspace_id = workspace_id_from_root(&canonical_root);
 
         self.create_for_workspace_descriptor(
             app_state,
@@ -94,7 +91,7 @@ impl WorkspaceSessionFactory {
 
         self.create_for_workspace_descriptor(
             app_state,
-            WorkspaceDescriptor::from_rail_model(workspace),
+            WorkspaceDescriptor::from_rail_model(workspace)?,
         )
     }
 
@@ -107,6 +104,16 @@ impl WorkspaceSessionFactory {
         app_state
             .notifications_mut()
             .push(notification.level, notification.message)
+    }
+
+    pub fn destroy_workspace_session(
+        &mut self,
+        app_state: &mut AppHostState,
+        session_id: &WorkspaceSessionId,
+    ) -> Option<WorkspaceSessionListEntry> {
+        let removed = app_state.destroy_workspace_session(session_id)?;
+        self.runtimes.remove(session_id);
+        Some(removed)
     }
 
     fn create_for_workspace_descriptor(
@@ -441,18 +448,34 @@ struct WorkspaceDescriptor {
 }
 
 impl WorkspaceDescriptor {
-    fn from_rail_model(model: &WorkspaceRailModel) -> Self {
-        Self {
-            workspace_id: WorkspaceId::new(model.metadata().workspace_id.clone()),
-            root_path: PathBuf::from(model.metadata().root_path.clone()),
+    fn from_rail_model(model: &WorkspaceRailModel) -> Result<Self, WorkspaceSessionFactoryError> {
+        let root_path = PathBuf::from(model.metadata().root_path.clone());
+        let canonical_root = canonicalize_workspace_root(&root_path)?;
+        Ok(Self {
+            workspace_id: workspace_id_from_root(&canonical_root),
+            root_path: canonical_root,
             display_name: model.metadata().display_name.clone(),
             rail_state: model.snapshot().state,
-        }
+        })
     }
 }
 
 fn workspace_session_id_for(workspace_id: &WorkspaceId) -> WorkspaceSessionId {
     WorkspaceSessionId::new(format!("session:{}", workspace_id.as_str()))
+}
+
+fn canonicalize_workspace_root(
+    workspace_root: &Path,
+) -> Result<PathBuf, WorkspaceSessionFactoryError> {
+    std::fs::canonicalize(workspace_root).map_err(|_| {
+        WorkspaceSessionFactoryError::WorkspacePathUnavailable {
+            path: workspace_root.to_path_buf(),
+        }
+    })
+}
+
+fn workspace_id_from_root(root_path: &Path) -> WorkspaceId {
+    WorkspaceId::new(format!("workspace:{}", root_path.display()))
 }
 
 fn map_workspace_status(state: WorkspaceRailState) -> WorkspaceStatus {
@@ -560,7 +583,11 @@ mod tests {
             .create_for_registry_workspace(&mut app_state, &registry, &added_id)
             .expect("registry から生成");
 
-        assert_eq!(created.workspace_id.as_str(), added_id);
+        let canonical_root = fs::canonicalize(workspace.path()).expect("canonical path");
+        assert_eq!(
+            created.workspace_id.as_str(),
+            format!("workspace:{}", canonical_root.display())
+        );
         let session = app_state
             .sessions()
             .get(&created.session_id)
@@ -638,5 +665,60 @@ mod tests {
                 terminal_id: DEFAULT_TERMINAL_ID.to_string(),
             }
         );
+    }
+
+    #[test]
+    fn 同一ルートをpathとregistry経由で二重生成できない() {
+        let workspace = TestWorkspaceDir::new("duplicate-root");
+        let mut app_state = AppHostState::empty();
+        let mut factory = WorkspaceSessionFactory::new();
+
+        let created_from_path = factory
+            .create_for_workspace_path(&mut app_state, workspace.path())
+            .expect("path から生成");
+
+        let mut registry = WorkspaceRegistry::new();
+        registry.open_add_dialog();
+        let validation = registry.update_dialog_path(workspace.path().display().to_string());
+        assert_eq!(validation, WorkspacePathValidation::Valid);
+        let registry_workspace_id = match registry.submit_add() {
+            AddWorkspaceOutcome::Added { workspace_id } => workspace_id,
+            other => panic!("registry 登録失敗: {other:?}"),
+        };
+
+        let error = factory
+            .create_for_registry_workspace(&mut app_state, &registry, &registry_workspace_id)
+            .expect_err("同一ルートは重複セッションとして拒否される");
+
+        match error {
+            WorkspaceSessionFactoryError::SessionCreationRejected { source, .. } => {
+                assert_eq!(
+                    source,
+                    WorkspaceSessionCreationError::DuplicateSessionId {
+                        id: created_from_path.session_id.clone(),
+                    }
+                );
+            }
+            other => panic!("想定外のエラー: {other:?}"),
+        }
+        assert_eq!(app_state.workspaces().len(), 1);
+        assert_eq!(app_state.sessions().len(), 1);
+    }
+
+    #[test]
+    fn セッション破棄でfactory_runtimeも解放する() {
+        let workspace = TestWorkspaceDir::new("destroy-runtime");
+        let mut app_state = AppHostState::empty();
+        let mut factory = WorkspaceSessionFactory::new();
+        let created = factory
+            .create_for_workspace_path(&mut app_state, workspace.path())
+            .expect("セッション生成");
+        assert!(factory.runtime(&created.session_id).is_some());
+
+        let removed = factory.destroy_workspace_session(&mut app_state, &created.session_id);
+
+        assert!(removed.is_some());
+        assert!(app_state.sessions().get(&created.session_id).is_none());
+        assert!(factory.runtime(&created.session_id).is_none());
     }
 }

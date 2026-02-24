@@ -135,7 +135,7 @@ pub enum WorkspaceRailUiAction {
 }
 
 /// GPUI イベントハンドラからアプリ層への通知を中継する最小キュー。
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct WorkspaceRailActionQueue {
     pending: VecDeque<WorkspaceRailUiAction>,
 }
@@ -169,11 +169,16 @@ pub struct WorkspaceRailDebugSnapshot {
 pub struct WorkspaceRailView {
     state: WorkspaceRailViewState,
     styles: GpuiDesignTokens,
+    action_queue: WorkspaceRailActionQueue,
 }
 
 impl WorkspaceRailView {
     pub fn new(state: WorkspaceRailViewState, styles: GpuiDesignTokens) -> Self {
-        Self { state, styles }
+        Self {
+            state,
+            styles,
+            action_queue: WorkspaceRailActionQueue::new(),
+        }
     }
 
     pub fn state(&self) -> &WorkspaceRailViewState {
@@ -182,6 +187,10 @@ impl WorkspaceRailView {
 
     pub fn set_state(&mut self, state: WorkspaceRailViewState) {
         self.state = state;
+    }
+
+    pub fn drain_pending_actions(&mut self) -> Vec<WorkspaceRailUiAction> {
+        self.action_queue.drain()
     }
 
     pub fn debug_snapshot(&self) -> WorkspaceRailDebugSnapshot {
@@ -251,6 +260,42 @@ impl WorkspaceRailView {
         });
     }
 
+    pub fn handle_add_button_click(&mut self) {
+        self.action_queue
+            .push(WorkspaceRailUiAction::RequestOpenAddDialog);
+    }
+
+    pub fn handle_item_row_click(&mut self, workspace_id: impl Into<String>) {
+        self.action_queue
+            .push(WorkspaceRailUiAction::RequestSelectWorkspace {
+                workspace_id: workspace_id.into(),
+            });
+    }
+
+    pub fn handle_exclude_button_click(&mut self) {
+        if let Some(workspace_id) = self
+            .state
+            .context_menu_target_workspace_id
+            .clone()
+            .or_else(|| self.selected_workspace_id())
+        {
+            let action = if self.state.context_menu_target_workspace_id.is_some() {
+                WorkspaceRailUiAction::RequestExcludeWorkspace { workspace_id }
+            } else {
+                WorkspaceRailUiAction::RequestOpenExcludeMenu { workspace_id }
+            };
+            self.action_queue.push(action);
+        }
+    }
+
+    fn selected_workspace_id(&self) -> Option<String> {
+        self.state
+            .items
+            .iter()
+            .find(|item| item.is_selected)
+            .map(|item| item.workspace_id.clone())
+    }
+
     fn status_chip(&self, state: WorkspaceRailState) -> gpui::Div {
         let palette = &self.styles.palette;
         let color = match state {
@@ -267,7 +312,12 @@ impl WorkspaceRailView {
             .flex_none()
     }
 
-    fn item_row(&self, item: &WorkspaceRailItemViewModel) -> gpui::Div {
+    fn item_row(
+        &self,
+        index: usize,
+        item: &WorkspaceRailItemViewModel,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let palette = &self.styles.palette;
         let fonts = &self.styles.fonts;
         let border_color = if item.is_selected {
@@ -275,8 +325,10 @@ impl WorkspaceRailView {
         } else {
             palette.panel_border
         };
+        let workspace_id = item.workspace_id.clone();
 
         div()
+            .id(("workspace-row", index))
             .w_full()
             .flex()
             .flex_col()
@@ -285,6 +337,10 @@ impl WorkspaceRailView {
             .bg(palette.panel_background)
             .border_1()
             .border_color(border_color)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.handle_item_row_click(workspace_id.clone());
+                cx.notify();
+            }))
             .child(
                 div()
                     .w_full()
@@ -327,13 +383,13 @@ impl WorkspaceRailView {
 }
 
 impl Render for WorkspaceRailView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = &self.styles.palette;
         let fonts = &self.styles.fonts;
 
         let mut list = div().w_full().flex().flex_col().gap_2();
-        for item in &self.state.items {
-            list = list.child(self.item_row(item));
+        for (index, item) in self.state.items.iter().enumerate() {
+            list = list.child(self.item_row(index, item, cx));
         }
         if self.state.items.is_empty() {
             list = list.child(
@@ -404,10 +460,15 @@ impl Render for WorkspaceRailView {
                     .gap_2()
                     .child(
                         div()
+                            .id("workspace-rail:add-button")
                             .flex_1()
                             .p_1()
                             .border_1()
                             .border_color(palette.accent)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.handle_add_button_click();
+                                cx.notify();
+                            }))
                             .child(
                                 div()
                                     .text_xs()
@@ -418,10 +479,15 @@ impl Render for WorkspaceRailView {
                     )
                     .child(
                         div()
+                            .id("workspace-rail:exclude-button")
                             .flex_1()
                             .p_1()
                             .border_1()
                             .border_color(palette.panel_border)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.handle_exclude_button_click();
+                                cx.notify();
+                            }))
                             .child(
                                 div()
                                     .text_xs()
@@ -723,6 +789,44 @@ mod tests {
                     workspace_id: "workspace-1".to_string()
                 },
                 WorkspaceRailUiAction::RequestSelectWorkspace {
+                    workspace_id: "workspace-1".to_string()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_rail_viewクリック操作が内部キューへ通知される() {
+        let mut view = WorkspaceRailView::new(
+            WorkspaceRailViewState {
+                items: vec![WorkspaceRailItemViewModel {
+                    workspace_id: "workspace-1".to_string(),
+                    display_name: "alpha".to_string(),
+                    root_path: "/tmp/alpha".to_string(),
+                    state: WorkspaceRailState::Idle,
+                    revision: 1,
+                    is_selected: true,
+                }],
+                add_dialog_open: false,
+                add_dialog_input_path: String::new(),
+                add_dialog_validation_message: None,
+                context_menu_target_workspace_id: Some("workspace-1".to_string()),
+            },
+            test_tokens(),
+        );
+
+        view.handle_add_button_click();
+        view.handle_item_row_click("workspace-1");
+        view.handle_exclude_button_click();
+
+        assert_eq!(
+            view.drain_pending_actions(),
+            vec![
+                WorkspaceRailUiAction::RequestOpenAddDialog,
+                WorkspaceRailUiAction::RequestSelectWorkspace {
+                    workspace_id: "workspace-1".to_string()
+                },
+                WorkspaceRailUiAction::RequestExcludeWorkspace {
                     workspace_id: "workspace-1".to_string()
                 },
             ]
