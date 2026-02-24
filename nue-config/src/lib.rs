@@ -3,25 +3,40 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AppLaunchConfigOverrides {
+pub struct AppLaunchConfigCliInput {
     pub workspace_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AppLaunchConfig {
     workspace_root: Option<PathBuf>,
+    config_file_loading: ConfigFileLoadingState,
+    environment_merge: EnvironmentMergeState,
+    hot_reload: HotReloadState,
 }
 
 impl AppLaunchConfig {
     pub fn workspace_root(&self) -> Option<&Path> {
         self.workspace_root.as_deref()
     }
+
+    pub fn config_file_loading(&self) -> ConfigFileLoadingState {
+        self.config_file_loading
+    }
+
+    pub fn environment_merge(&self) -> EnvironmentMergeState {
+        self.environment_merge
+    }
+
+    pub fn hot_reload(&self) -> HotReloadState {
+        self.hot_reload
+    }
 }
 
 pub fn resolve_app_launch_config(
-    overrides: AppLaunchConfigOverrides,
+    cli_input: AppLaunchConfigCliInput,
 ) -> Result<AppLaunchConfig, AppLaunchConfigResolveError> {
-    if let Some(path) = &overrides.workspace_root
+    if let Some(path) = &cli_input.workspace_root
         && !path.is_absolute()
     {
         return Err(AppLaunchConfigResolveError::WorkspacePathMustBeAbsolute {
@@ -30,8 +45,29 @@ pub fn resolve_app_launch_config(
     }
 
     Ok(AppLaunchConfig {
-        workspace_root: overrides.workspace_root,
+        workspace_root: cli_input.workspace_root,
+        config_file_loading: ConfigFileLoadingState::SkippedForMilestone,
+        environment_merge: EnvironmentMergeState::SkippedForMilestone,
+        hot_reload: HotReloadState::StubbedDisabled,
     })
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ConfigFileLoadingState {
+    #[default]
+    SkippedForMilestone,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum EnvironmentMergeState {
+    #[default]
+    SkippedForMilestone,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HotReloadState {
+    #[default]
+    StubbedDisabled,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,15 +95,24 @@ mod tests {
 
     #[test]
     fn default_config_has_no_workspace_root() {
-        let config = resolve_app_launch_config(AppLaunchConfigOverrides::default())
+        let config = resolve_app_launch_config(AppLaunchConfigCliInput::default())
             .expect("default config should resolve");
 
         assert_eq!(config.workspace_root(), None);
+        assert_eq!(
+            config.config_file_loading(),
+            ConfigFileLoadingState::SkippedForMilestone
+        );
+        assert_eq!(
+            config.environment_merge(),
+            EnvironmentMergeState::SkippedForMilestone
+        );
+        assert_eq!(config.hot_reload(), HotReloadState::StubbedDisabled);
     }
 
     #[test]
     fn absolute_workspace_root_is_accepted() {
-        let config = resolve_app_launch_config(AppLaunchConfigOverrides {
+        let config = resolve_app_launch_config(AppLaunchConfigCliInput {
             workspace_root: Some(PathBuf::from("/tmp/workspace")),
         })
         .expect("absolute path should resolve");
@@ -77,7 +122,7 @@ mod tests {
 
     #[test]
     fn relative_workspace_root_is_rejected() {
-        let error = resolve_app_launch_config(AppLaunchConfigOverrides {
+        let error = resolve_app_launch_config(AppLaunchConfigCliInput {
             workspace_root: Some(PathBuf::from("relative/workspace")),
         })
         .expect_err("relative path should fail");

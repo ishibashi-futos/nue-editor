@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process;
 
 use anyhow::{Context, Result};
-use nue_config::{AppLaunchConfig, AppLaunchConfigOverrides};
+use nue_config::{AppLaunchConfig, AppLaunchConfigCliInput};
 use tokio::runtime::{Builder, Runtime};
 
 type LaunchConfig = AppLaunchConfig;
@@ -66,7 +66,7 @@ async fn launch_ui(config: LaunchConfig) -> Result<()> {
 }
 
 fn resolve_launch_config(cli_args: CliArgs) -> Result<LaunchConfig, String> {
-    nue_config::resolve_app_launch_config(AppLaunchConfigOverrides {
+    nue_config::resolve_app_launch_config(AppLaunchConfigCliInput {
         workspace_root: cli_args.workspace_root,
     })
     .map_err(|error| error.to_string())
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(
             result,
             AppCommand::Run(
-                nue_config::resolve_app_launch_config(AppLaunchConfigOverrides {
+                nue_config::resolve_app_launch_config(AppLaunchConfigCliInput {
                     workspace_root: Some(PathBuf::from("/tmp"))
                 })
                 .expect("valid config")
