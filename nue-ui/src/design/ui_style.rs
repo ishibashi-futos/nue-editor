@@ -3,7 +3,7 @@ use nue_core::{
     workspace::rail::WorkspaceRailState,
 };
 
-use crate::design_system::{
+use crate::design::system::{
     AgentStatus, AgentStatusStyle, DesignSystem, DiffState, DiffStyle, DiffSurface,
     GlassStyleObject, GlassSurface, OverlayFocusState, OverlayLayerStyle, OverlayZIndexManager,
     StatusSurface,
@@ -89,7 +89,7 @@ impl UiStyleGuide {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::design_system::{
+    use crate::design::system::{
         DiffState, DiffSurface, OverlayFocusState, OverlayLayer, StatusSurface,
     };
 

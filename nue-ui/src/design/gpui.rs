@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use gpui::{App, Font, FontFallbacks, Rgba, font, rgb};
 
-use crate::design_system::{DesignSystem, FONT_KEY_EMPHASIS, FONT_KEY_META, FONT_KEY_TEXT};
+use crate::design::system::{DesignSystem, FONT_KEY_EMPHASIS, FONT_KEY_META, FONT_KEY_TEXT};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GpuiDesignTokens {
@@ -114,7 +114,7 @@ fn hex_rgb(hex: &str) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::design_system::DesignSystem;
+    use crate::design::system::DesignSystem;
 
     #[test]
     fn gpuiトークンへデザインシステムを変換できる() {

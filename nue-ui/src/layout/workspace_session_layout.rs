@@ -1,6 +1,6 @@
 use gpui::{Context, Window, div, prelude::*, px};
 
-use crate::design_system_gpui::GpuiDesignTokens;
+use crate::design::gpui::GpuiDesignTokens;
 
 /// 左パネルの種別。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -301,8 +301,8 @@ impl Render for WorkspaceSessionLayoutView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::design_system::DesignSystem;
-    use crate::design_system_gpui::GpuiDesignTokens;
+    use crate::design::gpui::GpuiDesignTokens;
+    use crate::design::system::DesignSystem;
 
     fn test_tokens() -> GpuiDesignTokens {
         GpuiDesignTokens::from_design_system(&DesignSystem::neon_night_glass())

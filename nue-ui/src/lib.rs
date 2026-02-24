@@ -6,18 +6,12 @@ use gpui::{
     size,
 };
 
-pub mod command_hub;
-pub mod design_system;
-pub mod design_system_gpui;
-pub mod editor_events;
-pub mod editor_input;
-pub mod legacy_explorer;
-pub mod tab_bar;
+pub mod command;
+pub mod design;
+pub mod editor;
+pub mod layout;
 pub mod terminal;
-pub mod terminal_display;
-pub mod ui_style;
-pub mod workspace_rail;
-pub mod workspace_session_layout;
+pub mod workspace;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UiLaunchRequest {
@@ -40,21 +34,20 @@ impl UiLaunchRequest {
 }
 
 pub fn run_app(request: UiLaunchRequest) -> gpui::Result<()> {
-    let design_system = design_system::DesignSystem::neon_night_glass();
+    let design_system = design::system::DesignSystem::neon_night_glass();
     let launch_error = Rc::new(RefCell::new(None));
     let launch_error_for_callback = Rc::clone(&launch_error);
     let request_for_callback = request.clone();
 
     Application::new().run(move |cx: &mut App| {
-        let design_tokens =
-            match design_system_gpui::apply_design_system_at_startup(cx, &design_system) {
-                Ok(tokens) => tokens,
-                Err(error) => {
-                    *launch_error_for_callback.borrow_mut() = Some(error);
-                    cx.quit();
-                    return;
-                }
-            };
+        let design_tokens = match design::gpui::apply_design_system_at_startup(cx, &design_system) {
+            Ok(tokens) => tokens,
+            Err(error) => {
+                *launch_error_for_callback.borrow_mut() = Some(error);
+                cx.quit();
+                return;
+            }
+        };
         let root_view = RootPlaceholderView::from_request(&request_for_callback, design_tokens);
 
         cx.on_window_closed(|cx| {
@@ -95,14 +88,11 @@ pub fn run_app(request: UiLaunchRequest) -> gpui::Result<()> {
 struct RootPlaceholderView {
     title: String,
     detail: String,
-    styles: design_system_gpui::GpuiDesignTokens,
+    styles: design::gpui::GpuiDesignTokens,
 }
 
 impl RootPlaceholderView {
-    fn from_request(
-        request: &UiLaunchRequest,
-        styles: design_system_gpui::GpuiDesignTokens,
-    ) -> Self {
+    fn from_request(request: &UiLaunchRequest, styles: design::gpui::GpuiDesignTokens) -> Self {
         let detail = match request.workspace_root() {
             Some(workspace_root) => format!("workspace: {}", workspace_root.display()),
             None => "workspace: 未選択".to_string(),

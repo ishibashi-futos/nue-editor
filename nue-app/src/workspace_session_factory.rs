@@ -14,11 +14,11 @@ use nue_core::workspace::legacy_workspace_editor::{
 };
 use nue_core::workspace::rail::{WorkspaceRailModel, WorkspaceRailState};
 use nue_core::workspace::registry::WorkspaceRegistry;
-use nue_ui::command_hub::CommandHubUiController;
-use nue_ui::editor_events::EditorEventSubscriber;
-use nue_ui::legacy_explorer::LegacyExplorerModel;
-use nue_ui::tab_bar::TabBarUiController;
-use nue_ui::terminal::TerminalUiController;
+use nue_ui::command::hub::CommandHubUiController;
+use nue_ui::editor::events::EditorEventSubscriber;
+use nue_ui::layout::tab_bar::TabBarUiController;
+use nue_ui::terminal::controller::TerminalUiController;
+use nue_ui::workspace::legacy_explorer::LegacyExplorerModel;
 
 const DEFAULT_TERMINAL_ID: &str = "terminal-1";
 

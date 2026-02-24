@@ -8,9 +8,9 @@ pub const FONT_LICENSE_SIL_OFL_1_1: &str = "SIL Open Font License 1.1";
 const FONT_FILE_REGULAR: &str = "JetBrainsMono-Regular.ttf";
 const FONT_FILE_BOLD: &str = "JetBrainsMono-Bold.ttf";
 const FONT_FILE_ITALIC: &str = "JetBrainsMono-Italic.ttf";
-const FONT_BYTES_REGULAR: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf");
-const FONT_BYTES_BOLD: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf");
-const FONT_BYTES_ITALIC: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Italic.ttf");
+const FONT_BYTES_REGULAR: &[u8] = include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf");
+const FONT_BYTES_BOLD: &[u8] = include_bytes!("../../assets/fonts/JetBrainsMono-Bold.ttf");
+const FONT_BYTES_ITALIC: &[u8] = include_bytes!("../../assets/fonts/JetBrainsMono-Italic.ttf");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentStatus {

@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 
 use gpui::{Context, Window, div, prelude::*, px};
 
-use crate::design_system_gpui::GpuiDesignTokens;
+use crate::design::gpui::GpuiDesignTokens;
 
 /// UI 側が参照するワークスペースステータス更新情報。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -585,8 +585,8 @@ impl WorkspaceRailConnector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::design_system::DesignSystem;
-    use crate::design_system_gpui::GpuiDesignTokens;
+    use crate::design::gpui::GpuiDesignTokens;
+    use crate::design::system::DesignSystem;
     use nue_core::workspace::rail::WorkspaceRailState;
     use nue_core::workspace::registry::{AddWorkspaceOutcome, WorkspacePathValidation};
     use std::fs;
