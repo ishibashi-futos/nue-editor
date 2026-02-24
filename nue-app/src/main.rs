@@ -1,3 +1,5 @@
+pub mod app_host_state;
+
 use std::env;
 use std::ffi::OsString;
 use std::fmt;
@@ -58,8 +60,8 @@ fn build_tokio_runtime() -> Result<Runtime> {
 }
 
 async fn launch_ui(config: LaunchConfig) -> Result<()> {
-    let request =
-        nue_ui::UiLaunchRequest::new().with_workspace_root(config.workspace_root().map(PathBuf::from));
+    let request = nue_ui::UiLaunchRequest::new()
+        .with_workspace_root(config.workspace_root().map(PathBuf::from));
     nue_ui::run_app(request)
 }
 
