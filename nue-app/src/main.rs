@@ -5,7 +5,10 @@ use std::path::PathBuf;
 use std::process;
 
 use anyhow::{Context, Result};
+use nue_config::{AppLaunchConfig, AppLaunchConfigOverrides};
 use tokio::runtime::{Builder, Runtime};
+
+type LaunchConfig = AppLaunchConfig;
 
 fn main() {
     match try_main(env::args_os()) {
@@ -57,24 +60,16 @@ fn build_tokio_runtime() -> Result<Runtime> {
 async fn launch_ui(config: LaunchConfig) -> Result<()> {
     // T-004 で GPUI 実起動に置き換える。ここでは起動境界だけ先に固定する。
     let _design_system = nue_ui::design_system::DesignSystem::neon_night_glass();
-    let _workspace = config.workspace_root;
+    let _workspace_root = config.workspace_root();
     tokio::task::yield_now().await;
     Ok(())
 }
 
 fn resolve_launch_config(cli_args: CliArgs) -> Result<LaunchConfig, String> {
-    if let Some(path) = &cli_args.workspace_root
-        && !path.is_absolute()
-    {
-        return Err(format!(
-            "`--workspace` には絶対パスを指定してください: {}",
-            path.display()
-        ));
-    }
-
-    Ok(LaunchConfig {
+    nue_config::resolve_app_launch_config(AppLaunchConfigOverrides {
         workspace_root: cli_args.workspace_root,
     })
+    .map_err(|error| error.to_string())
 }
 
 fn parse_cli_args(args: impl IntoIterator<Item = OsString>) -> Result<ParsedCli, AppError> {
@@ -170,11 +165,6 @@ OPTIONS:
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CliArgs {
-    workspace_root: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct LaunchConfig {
     workspace_root: Option<PathBuf>,
 }
 
@@ -282,9 +272,12 @@ mod tests {
 
         assert_eq!(
             result,
-            AppCommand::Run(LaunchConfig {
-                workspace_root: Some(PathBuf::from("/tmp"))
-            })
+            AppCommand::Run(
+                nue_config::resolve_app_launch_config(AppLaunchConfigOverrides {
+                    workspace_root: Some(PathBuf::from("/tmp"))
+                })
+                .expect("valid config")
+            )
         );
     }
 
