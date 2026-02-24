@@ -131,7 +131,9 @@ Development WorkflowのSync手順に従って、src/配下の未コミット変�
 - コミット完了後、実行した判断を簡潔に報告する
 EOF
 )
-  run_codex_exec "dangerously-bypass-approvals-and-sandbox" "never" "$MODEL" "$MODEL_REASONING_EFFORT" "$commit_prompt"
+  COMMIT_AGENT_MODEL="gpt-5.1-codex-mini"
+  COMMIT_AGENT_REASONING_EFFORT="low"
+  run_codex_exec "dangerously-bypass-approvals-and-sandbox" "never" "$COMMIT_AGENT_MODEL" "$COMMIT_AGENT_REASONING_EFFORT" "$commit_prompt"
   echo "✅ commit agent completed"
 }
 
@@ -143,7 +145,7 @@ run_development_phase() {
     RAW_TASK=$(scripts/task.sh)
     RAW_AGENT_PROMPT=$(cat "$PROMPT")
     AGENT_PROMPT=$(cat <<EOF
-次の作業を実施してください。
+次の作業を実施してください。タスクが終了したら、 specs/plans/v1-release-backlog.mdの該当タスクをチェックします。
 $RAW_TASK
 ---
 $RAW_AGENT_PROMPT

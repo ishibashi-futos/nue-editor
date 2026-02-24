@@ -1,7 +1,11 @@
 use crate::editor::core::{
-    CursorMoveOutcome, EditOutcome, EditorBufferSnapshot, EditorCore, HistoryOutcome,
-    MarkSavedOutcome, SaveOutcome, SaveTrigger,
+    CursorMoveOutcome, EditOutcome, EditorBufferSnapshot, EditorCommand, EditorContextMenu,
+    EditorContextMenuItem, EditorCore, EditorCoreEvent, ExecuteEditorContextMenuOutcome,
+    ExecuteMarkdownFeatureOutcome, HistoryOutcome, KeyChord, MarkSavedOutcome,
+    OpenEditorContextMenuOutcome, RegisterShortcutOutcome, SaveOutcome, SaveTrigger,
+    ShortcutDispatchOutcome,
 };
+use crate::editor::markdown::MarkdownFeature;
 use crate::workspace::git_status::collect_git_statuses;
 use crate::workspace::legacy_file_tree::{
     LegacyFileTree, LegacyFileTreeBuildError, LegacyFileTreeNodeStatus,
@@ -144,6 +148,48 @@ impl LegacyWorkspaceEditor {
         self.editor_core.snapshot()
     }
 
+    pub fn drain_editor_events(&mut self) -> Vec<EditorCoreEvent> {
+        self.editor_core.drain_events()
+    }
+
+    pub fn register_editor_shortcut(
+        &mut self,
+        chord: KeyChord,
+        command: EditorCommand,
+    ) -> RegisterShortcutOutcome {
+        self.editor_core.register_shortcut(chord, command)
+    }
+
+    pub fn register_default_editor_shortcuts(&mut self) -> Vec<(KeyChord, RegisterShortcutOutcome)> {
+        self.editor_core.register_default_shortcuts()
+    }
+
+    pub fn dispatch_editor_shortcut(&mut self, chord: &KeyChord) -> ShortcutDispatchOutcome {
+        self.editor_core.dispatch_shortcut(chord)
+    }
+
+    pub fn open_editor_context_menu(&mut self) -> OpenEditorContextMenuOutcome {
+        self.editor_core.open_context_menu()
+    }
+
+    pub fn execute_editor_context_menu_item(
+        &mut self,
+        item: EditorContextMenuItem,
+    ) -> ExecuteEditorContextMenuOutcome {
+        self.editor_core.execute_context_menu_item(item)
+    }
+
+    pub fn execute_markdown_feature(
+        &mut self,
+        feature: MarkdownFeature,
+    ) -> ExecuteMarkdownFeatureOutcome {
+        self.editor_core.execute_markdown_feature(feature)
+    }
+
+    pub fn editor_context_menu(&self) -> &EditorContextMenu {
+        self.editor_core.context_menu()
+    }
+
     fn is_inside_workspace(&self, file_path: &Path) -> bool {
         file_path.starts_with(self.workspace_root.as_path())
     }
@@ -200,7 +246,12 @@ fn create_unique_temp_path(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editor::core::{CursorMoveOutcome, EditOutcome, HistoryOutcome};
+    use crate::editor::core::{
+        CommandExecutionOutcome, CopyOutcome, CursorMoveOutcome, EditOutcome, EditorCommand,
+        EditorCoreEvent, HistoryOutcome, KeyChord, KeyModifier, OpenEditorContextMenuOutcome,
+        SaveOutcome, ShortcutDispatchOutcome,
+    };
+    use crate::editor::markdown::MarkdownFeature;
     use crate::workspace::git_status::GitFileStatus;
     use crate::workspace::legacy_file_tree::LegacyFileTreeNodeKind;
     #[cfg(unix)]
@@ -395,6 +446,75 @@ mod tests {
             .find(|node| node.name == "README.md")
             .expect("README ノードを見つける");
         assert_eq!(readme_node.git_status, Some(GitFileStatus::Modified));
+    }
+
+    #[test]
+    fn editor_coreのイベントと入力導線を委譲api経由で扱える() {
+        let fixture = WorkspaceFixture::new("legacy-workspace-editor-delegates");
+        let file_path = fixture.write_file("notes/today.md", "# Title\n");
+        let mut workspace_editor =
+            LegacyWorkspaceEditor::open(fixture.path_str()).expect("workspace を開く");
+
+        assert!(matches!(
+            workspace_editor.select_file(file_path.to_str().expect("utf-8 path")),
+            SelectFileOutcome::Selected(_)
+        ));
+        let opened_events = workspace_editor.drain_editor_events();
+        assert!(opened_events
+            .iter()
+            .any(|event| matches!(event, EditorCoreEvent::BufferOpened(_))));
+
+        let registered = workspace_editor.register_default_editor_shortcuts();
+        assert!(!registered.is_empty(), "デフォルトショートカットが登録される");
+        let register_events = workspace_editor.drain_editor_events();
+        assert!(register_events
+            .iter()
+            .any(|event| matches!(event, EditorCoreEvent::ShortcutRegistered(_))));
+
+        let save_chord = KeyChord::new("s", vec![KeyModifier::CmdOrCtrl]);
+        let shortcut_outcome = workspace_editor.dispatch_editor_shortcut(&save_chord);
+        assert!(matches!(
+            shortcut_outcome,
+            ShortcutDispatchOutcome::Executed { command, outcome }
+            if command == EditorCommand::Save
+                && outcome == CommandExecutionOutcome::Save(SaveOutcome::NotDirty)
+        ));
+        let shortcut_events = workspace_editor.drain_editor_events();
+        assert!(shortcut_events
+            .iter()
+            .any(|event| matches!(event, EditorCoreEvent::ShortcutDispatched(_))));
+
+        let menu_outcome = workspace_editor.open_editor_context_menu();
+        assert!(matches!(
+            menu_outcome,
+            OpenEditorContextMenuOutcome::Opened { .. }
+        ));
+        assert!(workspace_editor.editor_context_menu().is_open);
+        let execute_outcome =
+            workspace_editor.execute_editor_context_menu_item(EditorContextMenuItem::Copy);
+        assert!(matches!(
+            execute_outcome,
+            ExecuteEditorContextMenuOutcome::Executed { item, outcome }
+            if item == EditorContextMenuItem::Copy
+                && matches!(outcome, CommandExecutionOutcome::Copy(CopyOutcome::Copied))
+        ));
+        assert!(!workspace_editor.editor_context_menu().is_open);
+
+        let markdown_outcome = workspace_editor.execute_markdown_feature(MarkdownFeature::SyntaxHighlight);
+        assert_eq!(
+            markdown_outcome,
+            ExecuteMarkdownFeatureOutcome::Executed {
+                feature: MarkdownFeature::SyntaxHighlight,
+            }
+        );
+        let delegated_events = workspace_editor.drain_editor_events();
+        assert!(delegated_events.iter().any(|event| matches!(
+            event,
+            EditorCoreEvent::ContextMenuOpened(_)
+                | EditorCoreEvent::ContextMenuItemExecuted(_)
+                | EditorCoreEvent::CopyRequested(_)
+                | EditorCoreEvent::MarkdownFeatureRequested(_)
+        )));
     }
 
     struct WorkspaceFixture {
